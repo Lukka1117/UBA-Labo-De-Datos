@@ -1,0 +1,324 @@
+---
+title: "Regresión Polinómica y Validación"
+subtitle: "Práctica 7 - Laboratorio de Datos"
+author: "Luciana Lorenzo"
+date: "`r Sys.Date()`"
+
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: false
+  fontsize: 10pt
+  geometry: margin=1.5cm
+  header-includes:
+  - \usepackage{setspace}
+  - \singlespacing
+  - \usepackage{titlesec}
+  - \titlespacing*{\section}{0pt}{2ex}{1ex}
+  - \titlespacing*{\subsection}{0pt}{1.5ex}{0.8ex}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE, comment = NA)
+```
+
+\newpage
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(boot)
+library(knitr)
+```
+
+```{r R2_MSE}
+#funcion para calcular el R2 y MSE de un modelo de regresion lineal/polinomica
+
+calcular_R2_MSE <- function(modelo) {
+  coeficiente_det = summary(modelo)$r.squared
+  mse = mean(residuals(modelo)^2)
+  
+  resultados <- list(R2 = coeficiente_det, MSE = mse)
+  
+  return(resultados)
+}
+```
+
+
+A continuación la resolución de los ejercicios de la guía de Regresión Polinómica y Validación
+En los ejercicios 1 y 2 se resuelven ejercicios de la guía anterior pero con regresiones polinómicas. En *italics* las consignas y texto dado por los profesores.
+
+## Ejercicio 1
+
+**1.1)** *Utilizando la librería mtcars, crear un gráfico para visualizar la relación entre la potencia del motor (hp) y la eficiencia en millas por galón (mpg). Qué patrón se observa?*
+
+```{r datos_cars}
+datos_cars <- mtcars
+```
+
+```{r grafico_hp_mpg, fig.width=6, fig.height=4, fig.align='center'}
+ggplot(datos_cars, aes(x = hp, y = mpg)) +
+  geom_point(alpha = 0.8, color = "purple4") +
+  labs(title = "Relacion entre potencia del motor y eficiencia",
+       x = "Potencia del motor (hp)",
+       y = "Eficiencia (mpg)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+Se puede observar que los puntos se ubican en forma de curva, a mayor potencia del motor, el rendimiento de galon por milla disminuye, pero en los primeros aumentos de potencia se ve una disminución mas pronunciada, después se plancha un poco.
+
+**1.2)** *Ajustar un polinomio de grado 2 para predecir la ediciencia en millas por galón en función de la potencia del motor. Comparar con el ajuste de RLS.*
+
+```{r modelo_reg_poli}
+modelo_cars <- lm(mpg ~ poly(hp, 2), datos_cars)
+modelo_cars
+
+calcular_R2_MSE(modelo_cars)
+```
+En el modelo RLS de la guía anterior, había dado el intercept 30.09886 y la pendiente -0.06823, o sea, una ecuación estimada de mpg = 30.10 - 0.0682 * hp. Ahora, la función estimada para el modelo polinomial de grado 2 es:
+La ecuación estimada para el modelo polinomial de grado 2 es:
+
+$$`\text{mpg} = `r coef(modelo_cars)[1]` + (`r coef(modelo_cars)[2]`) \cdot P_1 + (`r coef(modelo_cars)[3]`) \cdot P_2`$$
+
+Donde la ordenada al origen es `r coef(modelo_cars)[1]`, el coeficiente lineal es `r coef(modelo_cars)[2]` y el cuadrático es `r coef(modelo_cars)[3]`.
+
+Ahora, el modelo describe mejor la relación curva que se ve en el gráfico. Los signos de los coeficientes reflejan el comportamiento esperado. El coeficiente lineal negativo indica que la eficiencia en mpg disminuye al aumentar la potencia, y el termino cuadrático positivo indica la curva concava hacia arriba (enforma de U) que se genera cuando la eficiencia deja de caer en las potencias más altas. Además, antes el coeficiente de determinación R2 daba 0.6024373 y el error cuadratico medio MSE daba 13.98982. Ahora, con el modelo polinómico de grado 2, R2 dio 0.75611, y el MSE dio 8.582239. Eso quiere decir que aumentó la capacidad para explicar la variabilidad de los datos y se redujo el error, lo que hace que este modelo se ajuste mejor a los datos.
+
+**1.3)** *Presentar un gráfico que muestre el modelo ajustado y los valores observados*
+
+```{r grafico_cars_poli, fig.width=6, fig.height=4, fig.align= 'center'}
+ggplot(datos_cars, aes(x = hp, y = mpg)) +
+  geom_point(alpha = 0.8, color = "purple4") +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2),  se = FALSE, color = "green") +
+  labs(title = "Relacion entre potencia del motor y eficiencia",
+       x = "Potencia del motor (hp)",
+       y = "Eficiencia (mpg)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+Con este nuevo modelo polinómico de grado 2, se hace evidente que la relación entre potencia y eficiencia no es una línea recta. La curva indica una tendencia decreciente inicial, donde el rendimiento disminuye a medida que aumenta la potencia. Pero a partir de los 200hp aprox, la pérdida de rendimiento presenta ese punto de inflección o curvatura en U para comenzar a estabilizarse.
+
+## Ejercicio 2
+
+**2.1)** *Cargar la librería gapminder, seleccionar datos del año 2002 y realizar un grafico de dispercion que muestre la relación entre el PBI y la esperanza de vida*
+
+```{r datos_gapminder}
+library(gapminder)
+
+datos_gap <- gapminder %>%
+  filter(year == 2002)
+
+summary(datos_gap)
+```
+```{r grafico_PBI_LifeExp, fig.width=6, fig.height=4, fig.align= 'center'}
+ggplot(datos_gap, aes(x = gdpPercap, y = lifeExp)) +
+  geom_point(alpha = 0.7, color = "hotpink") +
+  labs(title = "Relacion entre PBI per capita y esperanza de vida",
+       x = "PBI per capita",
+       y = "Esperanza de vida") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+El gráfico muestra una relación notoriamente no lineal entre el PBI per cápita y la esperanza de vida. En los paises con menos ingresos se ve que la expectativa de vida tiene un incremento drástico en relación a aumentos leves del PBI per cápita. Pero desde los 10000 dolares aprox, el crecimiento no sube tanto y parece estabilizarse.
+
+**2.2)** *Ajustar polinomios de grado 1 a 5 y seleccionar uno en base al MSE de predicción*
+
+```{r modelo_gap_poli}
+m1  <- lm(lifeExp ~poly(gdpPercap, 1), datos_gap) #este igual es el lineal
+m2  <- lm(lifeExp ~poly(gdpPercap, 2), datos_gap)
+m3  <- lm(lifeExp ~poly(gdpPercap, 3), datos_gap)
+m4  <- lm(lifeExp ~poly(gdpPercap, 4), datos_gap)
+m5  <- lm(lifeExp ~poly(gdpPercap, 5), datos_gap)
+
+tabla_R2_MSE_gapminder <- data.frame(
+  Modelo = c("Modelo Grado 1", 
+             "Modelo Grado 2", 
+             "Modelo Grado 3", 
+             "Modelo Grado 4", 
+             "Modelo Grado 5"),
+  
+  R2 = c(calcular_R2_MSE(m1)$R2, calcular_R2_MSE(m2)$R2, calcular_R2_MSE(m3)$R2, 
+         calcular_R2_MSE(m4)$R2, calcular_R2_MSE(m5)$R2),
+  MSE = c(calcular_R2_MSE(m1)$MSE, calcular_R2_MSE(m2)$MSE, calcular_R2_MSE(m3)$MSE, 
+          calcular_R2_MSE(m4)$MSE, calcular_R2_MSE(m5)$MSE))
+
+kable(tabla_R2_MSE_gapminder,
+      caption = "Comparación de modelos polinomicos",
+      digits = 2)
+```
+
+En base a los valores obtenidos, podría elegir el modelo 5 que tiene un 70% de capacidad para explicar la variabilidad de los datos, que es el mayor entre los modelos obtenidos. Y a su vez es el modelo con el menor error cuadratico medio. (Tengo en cuenta que puede no ser el mejor modelo porque puede existir overfitting, pero solo mirando el error cuadrático asumimos q es el que menor error tiene)
+
+**2.3)** *Presentar un gráfico que muestre el modelo ajustado y los valores observados para el modelo elegido en el item anterior*
+
+```{r grafico_gap_poli,fig.width=6, fig.height=4, fig.align= 'center'}
+ggplot(datos_gap, aes(x = gdpPercap, y = lifeExp)) +
+  geom_point(alpha = 0.7, color = "hotpink") +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 5), se = FALSE, color = "cyan2") +
+  labs(title = "Relacion entre PBI per capita y esperanza de vida",
+       x = "PBI per capita",
+       y = "Esperanza de vida") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+Por el gráfico que resulta de la regresión polinómica grado 5, tiene pinta de que sea overfitting este modelo por las maniobras raras que hace en el medio y en el final. Por ahi era mejor un grado 3 aprox. Al elegir un grado alto el modelo pierde capacidad de generalizacion por intentar seguir la dispersion de la muestra en lugar de predecir la tendencia.
+
+
+## Ejercicio 3
+
+*Una consultora económica está estudiando la relación entre el nivel de ingreso mensual de los consumidores (expresado en miles de dólares) y su nivel de gasto en bienes de lujo, en particular gastos en restaurants (en dólares). Se presume que esta relación no es lineal: a ingresos bajos, el gasto es limitado; a ingresos medios, los consumidores gastan más; pero a ingresos altos, el gasto tiende a estabilizarse o incluso disminuir, posiblemente debido a un cambio de hábitos financieros (ahorro, inversión, etc.). La base de datos datosGastoLujo.csv contiene información sobre ingresos y gastos en bienes de lujo (ambos en dolares) de 200 consumidores.*
+
+**3.1)** *Cargar los datos y explorar*
+
+```{r datos_gastos}
+datos_gastos <- read.csv("datosGastoLujo.csv")
+
+str(datos_gastos)
+summary(datos_gastos)
+```
+El dataset tiene 200 observaciones y 3 variables. La X es un identificador numérico de los consumidores. mientras q las cuantitativas que nos interesan son ingreso y gasto. En las distribuciones que se ven en summary, se ve que el ingreso mensual de los usuarios varía entre un mínimo de 0.54 y un máximo de 9.98 miles de dólares, con una media de 5.46. Por otro lado, el gasto en restaurantes muestra una dispersión que va desde los 55.58 hasta los 390.35 dólares, ubicando al consumidor promedio en un gasto de 250.65 dólares. Las dos presentan valores de media y mediana muy cercanos entre sí, lo que sugiere distribuciones relativamente equilibradas y sin valores extremos que distorsionen severamente las métricas centrales antes de comenzar con el modelado.
+
+**3.2)** *Modelar la relación entre el ingreso y el gasto en bienes de lujo, utilizando regresión polinomial y determinar cual es el mejor grado del polinomio para predecir el gasto, evaluando el desempeño mediante validacion cruzada*
+
+Para esto, armo modelos polinomicos de distintos grados y calculo el error de predicción con leave one out cross validation (LOOCV) de cada uno, que consiste en dividir la base de datos dejando una unica observación para ser utilizada como set de validación, y las restantes como set de entrenamiento. El modelo se entrena con n-1 observaciones y la predicción se realiza sobre la observación excluida. Este procedimiento se repite n veces. Se selecciona el que produzca menor error promedio de estimación
+
+Uso la función del paquete boot, y una funcion que calcula el error de predicción para los modelos polinómicos desde grado 1 a grado 10, a ver si en algun momento el error baja y al siguiente grado sube de vuelta.
+
+```{r funcion_error_por_grado}
+cv.error <- rep(0, 10)
+for (i in 1:10) {
+  modelo_gastos <- glm(gasto ~ poly(ingreso , i), data = datos_gastos)
+  cv.error[i] <- cv.glm(datos_gastos, modelo_gastos)$delta[1]
+}
+```
+
+Hago una tabla para comparar el promedio de error de cada grado
+
+```{r tabla_error_por_grado}
+tabla_cv <- matrix(cv.error, nrow = 1) #crea una matriz de 1 fila y 10 cols
+colnames(tabla_cv) <- paste("Grado", (1:10))
+rownames(tabla_cv) <- "MSE (LOOCV)"
+
+kable(tabla_cv,
+      caption = "Error de predicción estimado mediante Validación Cruzada para cada grado polinómico",
+      digits = 2)
+```
+Viendo los valores de la tabla, el modelo que más se ajusta es el polinómico de grado 3, ya que es el que menor error de predicción dió mediante validación cruzada. A partir del grado 4 empieza a subir de vuelta, lo que lleva a problemas de overfitting. Ahora hago el grafico
+
+```{r dispersion_gastos, fig.width=6, fig.height=4, fig.align= 'center'}
+ggplot(datos_gastos, aes(x = ingreso, y = gasto)) +
+  geom_point(alpha = 0.7, color = "dodgerblue") +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 3), se = FALSE, color = "coral") +
+  labs(title = "Relacion entre el ingreso y el gasto en bienes de lujo",
+       x = "Ingreso mensual (miles de USD)",
+       y = "Gasto en bienes de lujo") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+calcular_R2_MSE(lm(gasto ~ poly(ingreso, 3), datos_gastos))
+```
+El gráfico con el ajuste polinómico de grado 3 repleja bien el comportamiento no lineal de la relación pedida. En los ingresos bajos los gastos son menores, pero a medida que suben los ingresos, los gastos tienen un aumento considerable. Luego, a partir de los 7.5 miles de USD, se ve que deja de subir y se genera una curva, donde los gastos quedan mas o menos estables. Esto confirma la hipótesis de la consultora sobre los cambios de habitos de ahorro en los sectores de mayores ingresos. Además, el valor del coeficiente de determinación R2 me dice que el modelo explica el 99% de la variabilidad el gasto,  y es el modelo con el menor promedio de error MSE calculado por validacion cruzada. Esto me dice que las predicciones se encuentran cerca de los valores reales y el ajuste es muy preciso.
+
+## Ejercicio 4
+
+**4.1)** *Cargar el dataset Auto de la ibreria ISLR2 y explorar*
+
+```{r}
+#install.packages("ISLR2")
+library(ISLR2)
+
+datos_Auto <- Auto
+str(datos_Auto)
+summary(datos_Auto)
+```
+
+El datset contiene 392 observaciones y 9 variables automotrices. Las variables clave del estudio son mpg (consumo en millas por galón), que varía entre 9.0 y 46.6 (media de 23.45), y horsepower (potencia en caballos de fuerza), que oscila entre 46 y 230 (media de 104.5). La cercanía entre las medias y las medianas en ambas variables indica distribuciones estables y balanceadas, ideales para el modelado y la validación cruzada.
+
+### The Validarion Set Approach
+
+```{r}
+set.seed(2) # fija semilla de un generador al azar, garantiza q la particion de datos sea 
+            # reproducible y elija lso mismo autos
+train <- sample(392, 196) # selecciona 196 "posiciones" (de las posibles 392) 
+                          # arma el set de entrenamiento
+                          # los que quedn afuera son los de validacion
+
+#Ajuste del modelo con el subset de entrenamiento (train)
+lm.fit <- lm(mpg ~ horsepower, data = Auto, subset = train)
+
+# Calculo del MSE con el set de validacion (-train index selecciona solo las 
+# observaciones que no están en el training set.)
+attach(Auto) # ojo con attach, me deja acceder a las columnas con su nombre 
+             # sin el $, pero se desaconseja
+mean((mpg - predict(lm.fit, Auto))[-train]^2)
+# calcula el mse de validacion. Predict calcula las predcciones para todos los autos
+# el signo - adelante de train le dice a R q se quede solo con las filas q no se usaron 
+# para entrenar. Despues resta el valor real menos la prediccion y lo eleva al cuadrado. 
+# El resultado es el error qcomete el modelo con datos nuevos
+
+# Ajustar regresiones polinomicas (función poly()) y estimar el error de testeo 
+# para un polinomio grado 2 y uno grado 3
+lm.fit2 <- lm(mpg ~ poly(horsepower, 2), data = Auto, subset = train)
+mean((mpg - predict(lm.fit2, Auto))[-train]^2)
+lm.fit3 <- lm(mpg ~ poly(horsepower, 3), data = Auto, subset = train)
+mean((mpg - predict(lm.fit3, Auto))[-train]^2)
+
+detach(Auto)
+```
+*Anotar los valores obtenidos. Cambiar la semilla (ejemplo set.seed(2)), de manera que el training set se modifique. ¿Qué ocurrió con el error de testeo en ambos polinomios? Discutir los resultados obtenidos*
+
+Como valores obtenidos, se ve que el MSE de la regresión lineal es 23.27, el de la polinomial de grado dos es 18.72 y el de la polinomial grado 3 es 18.79. Estos resultados me dicen que la curva del polinomio de grado 2 describe mejor la relacion que la funcion lineal o la de grado 3. Igual el error de grado 3 es mas alto pero minimamente, diferencia decimal.
+Si cambio la seed a 2, los valores nuevos de los MSE cambiaron bastante todos. Me da el lineal 25.73, el polinomial grado 2 me da 20.43 y el grado 3 me da 20.39. Al cambiar el numero de la semilla, sample va a seleccionar una combinacion de 196 autos completamente distinta para el entrenamiento. Por esto, las ecuaciones de los modelos cambian y los errores de testeo varian notablemente. Esto es una desventaja del Validation Set Approach ya que la estimación del error de prueba es muy variable, depende puramente del azar y qué observaciones entren en el grupo de entrenamiento y cualees en el de validación. Además entrenar solo con la mitad de los datos, el modelo tiene menos info para aprender la verdadera tendencia de los datos.
+
+### Leave-One-Out Cross-Validation
+
+*En esta parte, utilizaremos la función glm() en lugar de lm(), ya que la primera puede usarse junto con cv.glm(). La función cv.glm() forma parte de la biblioteca boot. Si utilizamos la función glm() sin especificar el argumento family, por defecto se ajusta un modelo de regresión lineal, de manera equivalente a lo que hace la función lm(). En la versión completa del script se ofrece un ejemplo de esto*
+
+```{r}
+glm.fit <- glm(mpg ~ horsepower, data = Auto)
+cv.err <- cv.glm(Auto, glm.fit)
+cv.err$delta
+```
+*La función cv.glm() devuelve una lista con varios componentes. Los dos números en el vector delta contienen los resultados de la validación cruzada. En este caso, los números son idénticos (hasta dos cifras decimales) y corresponden a la estadística de validación cruzada Leave-One-Out (LOOCV) presentada en la ecuación (5.1, ref al libro) (Más adelante, se muestra una situación en la que estos dos números difieren). Podemos repetir este procedimiento con ajustes polinomiales de complejidad (grado) creciente. Para automatizar el proceso, usamos la for(). Discutir los resultados obtenidos*
+
+```{r}
+cv.error <- rep(0, 10)
+for (i in 1:10) {
+glm.fit <- glm(mpg ~ poly(horsepower, i), data = Auto)
+cv.error[i] <- cv.glm(Auto, glm.fit)$delta[1]
+}
+cv.error
+```
+Viendo los resultados, el MSE disminuye notablemente en la regresion polinomial de grado 2. Desde ahí, el error no cambia mucho y las variaciones son insignificantes. El modelo óptimo podría ser el de grado 2 tranquilamente, ya que la ganancia minima de precision con otros modelos como el de grado 7 por ejemplo, no justifica aumentar la complejidad del modelo. Coomo que se deja de ganar presición y solo agrega complejidad subir el grado, no aporta nada.
+
+### k-Fold Cross Validation
+
+*Observar el código. ¿Qué se modifica respecto al código presentado para LOOCV? Discutir los resultados obtenidos*
+
+```{r}
+set.seed(17)
+cv.error.10 <- rep(0, 10)
+for (i in 1:10) {
+  glm.fit <- glm(mpg ~ poly(horsepower, i), data = Auto)
+  cv.error.10[i] <- cv.glm(Auto, glm.fit, K = 10)$delta[1]
+}
+cv.error.10
+```
+
+*Nota: los dos números asociados con delta son esencialmente los mismos cuando se realiza LOOCV. Cuando, en cambio, se reliza un CV de k veces, los dos números asociados con delta difieren ligeramente. El primero es la estimación estándar de CV de k veces, y el segundo es una versión con corrección de sesgo. En este conjunto de datos, las dos estimaciones son muy similares.*
+
+La diferencia con el código presentado para LOOCV es que en la función cv.glm se esta especificando en cuantos grupos se divide el conjunto de datos para estimar la predicción de error de la validación cruzada. Cuando no se especifica usa la cantidad de observaciones del dataset por defecto y hace LOOCV. Ahora, el codigo está pidiendo que divida los datos en 10 grupos y eso se repite 10 veces para cada grado. En cada repetición, se usa un grupo para validación y el resto para entrenamiento.
+En los resultados se ve que, igual que con LOOCV, el MSE disminuye notoriamente al pasar del modelo lineal al polinomial de grado 2, pero después de ese grado casi no cambia. Vuelve a confirmar que el modelo mas óptimo es elde grado 2 para tener un modelo con menos MSE y sin parámetros innecesarios que complejizan el modelo. Por otro lado, el calculo especificando K = 10 es mas eficiente temporalmente, ya que pasa de hacer 392 ajustes por polinomio a hacer solo 10, por lo que tarda mucho menos. Además, los resultados obtenidos entre las estimaciones de error obtenidas con k-fold son muy similares y consistentes con las de LOOCV, asi que en este caso, el enfoque k-fold es suficiente para calcular la regresion de la relacion entre horsepower y mpg de este conjunto de datos.
+
+
+
+
+
+
+
+
+
+
+

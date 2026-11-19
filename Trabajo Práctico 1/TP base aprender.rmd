@@ -1,0 +1,671 @@
+---
+title: ""
+subtitle: ""
+author: ""
+date: ""
+
+output:
+  pdf_document:
+
+fontsize: 11pt
+geometry: margin=2.5cm
+linestretch: 1.5
+
+header-includes:
+  - \usepackage{setspace}
+  - \usepackage{mathptmx}
+  - \usepackage{titlesec}
+  - \usepackage{sectsty}
+  - \usepackage{hyperref}
+  - \sectionfont{\fontsize{16}{18}\selectfont}
+  - \subsectionfont{\fontsize{14}{16}\selectfont}
+  - \usepackage{indentfirst}
+  - \setlength{\parindent}{0.5cm}
+  - \hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}
+  - \usepackage{float}
+  - \usepackage{caption}
+  - \captionsetup{justification=centering}
+---
+
+```{r setup, include=FALSE}
+
+# Instalación de paquetes necesarios.
+
+  # install.packages("dplyr")
+  # install.packages("tidyr")
+  # install.packages("tidyverse")
+  # install.packages("ggplot2")
+  # install.packages("readr")
+  # install.packages("knitr")
+  # install.packages("kableExtra")
+  # install.packages("gridExtra")
+  # install.packages("ggrepel")
+
+# Configuración global de chunks.
+
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE
+)
+
+# Librerías utilizadas.
+
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(readr)
+library(knitr)
+library(kableExtra)
+library(gridExtra)
+library(ggrepel)
+```
+
+\centerline{\LARGE \textbf{\underline{Análisis de Resultados Aprender 2024}}}
+
+\vspace{0.5cm}
+
+\centerline{\LARGE \textbf{\underline{Trabajo Práctico N° 1}}}
+
+\vspace{0.7cm}
+
+\centerline{\large \textbf{\underline{Materia}:} Laboratorio de Datos}
+
+\vspace{0.5cm}
+
+\centerline{\large \textbf{\underline{Grupo}:} 4}
+
+\vspace{0.5cm}
+
+\centerline{\large \textbf{\underline{Integrantes}:}}
+
+\centerline{Barrios, Uma}
+\centerline{Lorenzo, Luciana}
+\centerline{Temelini, Mateo}
+
+\vfill
+
+\centerline{Fecha: `r Sys.Date()`}
+
+\newpage
+
+## Introducción
+
+```{r carga_datos}
+# Cargamos los dataframe.
+
+base_aprender <- read_csv("base_aprender_secu_2024.csv")
+base_presupuesto <- read_csv("presupuesto_educacion_2024.csv")
+```
+
+Las pruebas Aprender constituyen, desde el año 2016, la principal herramienta nacional oficial de evaluación del aprendizaje de los estudiantes de nivel primario y secundario. 
+Desarrolladas por la Subsecretaría de Información y Evaluación Educativa, permiten comprender la realidad del sistema educativo argentino, ya que no solo reflejan qué están aprendiendo los estudiantes dentro de las aulas, sino también las condiciones en las que tienen lugar los procesos de enseñanza y aprendizaje. Asimismo, permiten detectar deficiencias y orientar la toma de decisiones pedagógicas e institucionales y el diseño de estrategias enfocadas en mejorar la calidad educativa. 
+Este trabajo tiene como objetivo analizar información correspondiente al operativo Aprender 2024, realizado el 24 de octubre de ese año a estudiantes de quinto y sexto año del nivel secundario. El análisis no busca establecer relaciones causales entre variables, sino identificar patrones generales, tendencias y diferencias observables dentro de los datos disponibles.
+
+Para ello se utilizaron dos bases de datos adaptadas: una con información sobre el desempeño de los estudiantes en las áreas de Lengua y Matemática, junto con variables sociodemográficas e institucionales, y otra con información sobre el presupuesto educativo del mismo año. En adelante, se hará referencia a ellas como `base_aprender` y `base_presupuesto`, respectivamente.
+
+\newpage
+
+```{r func_resumen_estadistico}
+# Función auxiliar que calcula resúmenes estadísticos de una variable.
+
+resumen_numerico <- function(x) {
+  data.frame(
+      Media = mean(x, na.rm = TRUE),
+      Mediana = median(x, na.rm = TRUE),
+      Desvío = sd(x, na.rm = TRUE),
+      Mínimo = min(x, na.rm = TRUE),
+      Máximo = max(x, na.rm = TRUE),
+      Rango = IQR(x, na.rm = TRUE)
+  )
+}
+```
+
+```{r func_frecuencias}
+# Función auxiliar que calcula la frecuencia de una variable en un dataframe.
+
+tabla_frecuencias <- function(df, var, titulo) {
+  df %>%
+    count({{ var }}) %>%
+    mutate(frecuencia_relativa = round(n / sum(n) * 100, 1)) %>%
+    mutate(Variable = titulo) %>%
+    rename(Categoria = 1) %>%
+    select(Variable, Categoria, n, frecuencia_relativa)
+}
+```
+
+## Metodología
+
+El procesamiento, manipulación y visualización de los datos se realizaron en R Markdown utilizando las librerías del ecosistema tidyverse (dplyr, tidyr, ggplot2, readr) y knitr para la generación de tablas.
+
+El trabajo adoptó un enfoque descriptivo y exploratorio, orientado al resumen estadístico, la representación gráfica y el análisis comparativo entre distintos grupos de observaciones.
+
+En la etapa exploratoria se calcularon medidas descriptivas de tendencia central y dispersión de las variables numéricas como la media, mediana, desvío estándar, extremos y rango intercuartílico. Se analizaron distintas variables categóricas vinculadas con las características institucionales y los niveles de desempeño académico. Para ello se construyeron distribuciones de frecuencias absolutas y relativas, mediante funciones auxiliares que facilitaron el procesamiento y resumen de la información.
+
+En primer lugar, se analizó la estructura del conjunto de datos `base_aprender`, que contiene `r nrow(base_aprender)` observaciones, cada una representando a un estudiante, y `r ncol(base_aprender)` variables. Para la construcción de esta base se consideraron aquellos estudiantes que respondieron al menos el 50% de alguna de las evaluaciones. Asimismo, se incluyeron únicamente los establecimientos educativos que contaban con al menos un estudiante que cumpliera dicha condición. 
+
+El operativo alcanzó un total de `r length(unique(base_aprender$ID_colegio))` escuelas. Participaron en promedio 32.38 estudiantes por escuela, con un desvío estándar de 28.96, una mediana de 24 y un rango intercuartílico de 33. El número de secciones evaluadas por institución presentó un promedio de 2.11 y una mediana y rango intercuartílico iguales a 2.
+
+```{r exclusiones, include = FALSE}
+# Cálculos de exclusiones:
+
+#Cantidad de estudiantes evaluados por escuela.
+
+alumnos_escuela <- base_aprender %>%
+  group_by(ID_colegio) %>%
+  summarise(cantidad_alumnos = n())
+
+# Identificación de escuelas con menos de 10 estudiantes evaluados.
+
+escuelas_excluidas <- alumnos_escuela %>%
+  filter(cantidad_alumnos < 10)
+
+# Cálculo de la cantidad de escuelas y estudiantes excluidos.
+
+cantidad_escuelas_excluidas <- nrow(escuelas_excluidas)
+alumnos_excluidos <- sum(escuelas_excluidas$cantidad_alumnos, na.rm = TRUE)
+
+# Construcción de la base filtrada excluyendo escuelas con menos de diez estudiantes evaluados.
+
+base_filtrada <- base_aprender %>%
+  group_by(ID_colegio) %>%
+  filter(n() >= 10) %>%
+  ungroup()
+```
+
+Una vez realizada la descripción general de los datos, y con el objetivo de garantizar una cantidad mínima de observaciones por institución, se excluyeron del resto del trabajo aquellas escuelas con menos de diez estudiantes evaluados. En total, se eliminaron 2377 escuelas y, en consecuencia, quedaron fuera del análisis 12130 estudiantes. Esta decisión permitió trabajar con unidades de análisis más representativas y reducir el efecto de valores extremos asociados a muestras pequeñas.
+
+Para el manejo de los datos, se tomaron distintas medidas en cuano a los datos faltantes. Para los cálculos de resumen (media, mediana, desvío, mínimo, máximo y rango) y los gráficos basados en el puntaje de los alumnos, se excluyeron los datos faltantes con el objetivo de no distorcionar las estadísticas. Se tomó la misma medida para construcción de promedios y análisis según el nivel educativo de la madre. Luego, para las frecuencias de variables categóricas, los datos faltantes fueron conservados para verlos como categoría propia, y así evitar que su exclusión alterara las proporciones de las categorías.
+
+Se abordó el análisis de la distribución del desempeño de los estudiantes en Lengua y Matemática mediante histogramas y gráficos de barras comparativos. Los histogramas permitieron representar la distribución de los puntajes, mientras que los gráficos de barras se utilizaron para visualizar la concentración de estudiantes en los distintos niveles de desempeño.
+
+Posteriormente, se construyó una base agregada a nivel escuela con el objetivo de analizar el rendimiento promedio institucional. Para ello se calcularon los puntajes promedio de Lengua y Matemática correspondientes a cada establecimiento educativo y se conservaron variables institucionales relevantes como jurisdicción, sector y ámbito. Sobre esta base se realizaron comparaciones entre grupos de escuelas mediante tablas resumen, gráficos de barras y diagramas de caja, los cuales permitieron observar diferencias tanto en los valores promedio como en la dispersión de los rendimientos escolares.
+
+Por otro lado, se exploró la relación entre el gasto educativo por alumno estatal y el rendimiento académico promedio de las jurisdicciones. Este análisis se realizó exclusivamente sobre escuelas de gestión estatal, debido a que la información presupuestaria disponible correspondía únicamente a dicho sector. Para ello se construyó una base agregada por jurisdicción que integró indicadores de desempeño académico y variables presupuestarias. A partir de la misma se elaboraron gráficos de dispersión acompañados por rectas de ajuste lineal, con el propósito de visualizar posibles asociaciones entre ambas variables. Además, se calcularon coeficientes de correlación lineal para cuantificar la intensidad de la relación observada entre el gasto educativo y los puntajes promedio en Lengua y Matemática.
+
+Finalmente, con el objetivo de estudiar diferencias en el rendimiento académico según el nivel de formación de la madre, se construyó una base de datos en formato largo, integrando los puntajes de Lengua y Matemática en una única variable y excluyendo las observaciones con datos faltantes en la variable correspondiente al nivel educativo materno. Sobre esta nueva estructura se realizaron boxplots para comparar la distribución de los puntajes entre las distintas categorías de dicha variable.
+
+\newpage
+## Resultados
+
+### Descripción exploratoria de las bases de datos
+
+En esta sección se presentan análisis descriptivos de las bases `base_aprender` y `base_presupuesto`, considerando los puntajes de Lengua y Matemática y el gasto estatal por alumno.
+
+Las medidas descriptivas de ambas bases se pueden ver en las tablas 1 y 2 ubicadas en el Anexo 1. La primera presenta medidas descriptivas de los puntajes obtenidos por los estudiantes en ambas áreas evaluadas. Se puede ver que el promedio de Lengua es mayor que el de matemática. Sin embargo, Lengua presenta una dispersión superior, lo que demuestra una mayor heterogeneidad interna entre estudiantes.
+En la segunda, se puede ver que el gasto máximo por alumno es casi cinco veces mayor que el mínimo, lo que significaría una disparidad en la inversión educativa entre distintas jurisdicciones.
+
+### Variables categóricas
+
+Se presenta la distribución de las principales variables categóricas del conjunto de datos de la base Aprender 2024. Esto incluye sector privado o estatal, ámbito rural o urbano, desempeño en Lengua y desempeño en Matemática.
+
+La tabla detallada de las variables categóricas puede verse en el Anexo 2. Los resultados muestran que el 62.3% de estudiantes asiste a escuelas estatales y 37.7% a privadas. Además, vemos que 92.7% de los estudiantes asiste a instituciones ubicadas en ámbitos urbanos, mientras que apenas el 7.3% pertenece al ambito rural. En cuanto al desempeño de los alumnos, en Lengua se observa mayor proporción de niveles altos mientras que en Matemática el 50% se ubica por debajo del nivel básico. Los datos faltantes representan el 3.3% en Lengua y el 4.2% en Matemática.
+
+A partir de este punto del análisis se utiliza la base filtrada, que excluye las escuelas con menos de 10 alumnos evaluados.
+
+### Distribución del desempeño individual en ambas materias
+
+En esta sección se analiza el desempeño de los estudiantes en las áreas de Lengua y Matemática.
+
+```{r distribucion_puntajes}
+# Reorganización de los puntajes de Lengua y Matemática a formato largo para facilitar el análisis gráfico.
+
+puntajes <- base_filtrada %>%
+  pivot_longer(
+    cols = c(lpuntaje, mpuntaje),
+    names_to = "area",
+    values_to = "puntaje")
+```
+
+```{r distribucion_desempeño}
+# Reorganización de los niveles de desempeño de ambas áreas a formato largo para comparar distribuciones.
+
+desempeño <- base_filtrada %>%
+  pivot_longer(
+    cols = c(ldesemp, mdesemp),
+    names_to = "area",
+    values_to = "nivel")
+```
+
+\noindent
+```{r grafico_distribucion_desempeño, fig.height = 2, fig.width = 7}
+# Gráfico de barras con la distribución de niveles de desempeño por área.
+
+ggplot(desempeño, aes(x = str_wrap(nivel, width = 40), fill = nivel)) +
+  geom_bar() +
+  coord_flip() +
+  facet_wrap(~ area, labeller = labeller(area = c("ldesemp" = "Lengua", "mdesemp" = "Matemática"))) +
+  labs(
+    title = "Distribución de niveles de desempeño",
+    x = "Nivel",
+    y = "Cantidad de estudiantes",
+    caption = "Figura 1. Frecuencia absoluta de los niveles de desempeño") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+        axis.title.x = element_text(size = 8, face = "bold"),
+        axis.title.y = element_text(size = 8, face = "bold"))
+```
+
+La figura 1 presenta la distribución de estudiantes según nivel de desempeño en cada área. Se observa una mayor proporción de estudiantes en niveles satisfactorios de Lengua, mientras que en Matemática predomina el desempeño por debajo del nivel básico.
+
+En cuanto a la distribución de la frecuencia de puntajes, visualizado en el histograma de la figura 2 del Anexo 3, se puede ver que los puntajes en Lengua tienen una distribución más simétrica rondando los 500 puntos, a diferencia de la distribución de Matemática que tiene mayor frecuencia en puntajes más cercanos a 400. Es consistente con los resultados de los niveles de desempeño previamente observados, ya que la proporción de estudiantes por debajo del nivel básico era mucho mayor en Matemática.
+
+### Rendimiento por escuela según características institucionales
+
+En esta sección se analiza el rendimiento promedio de las escuelas según distintas características institucionales, como jurisdicción, sector de gestión y ámbito de localización.
+
+```{r tabla_promedio_por_escuela}
+# Cálculo del rendimiento promedio por escuela en Lengua y Matemática.
+
+promedio_escuela <- base_filtrada %>%
+  group_by(ID_colegio, jurisdiccion, sector, ambito) %>%
+  summarise(
+    promedio_lengua = mean(lpuntaje, na.rm = TRUE),
+    promedio_matematica = mean(mpuntaje, na.rm = TRUE))
+```
+
+A continuación, el gráfico muestra el rendimiento promedio en Matemática y Lengua para cada jurisdicción.
+
+```{r rendimiento_por_jurisdiccion, include=FALSE}
+# Construcción de una tabla resumen con los promedios de rendimiento por jurisdicción en ambas materias.
+
+tabla_jurisdiccion <- promedio_escuela %>%
+  group_by(jurisdiccion) %>%
+  summarise(
+    promedio_lengua = round(mean(promedio_lengua, na.rm = TRUE), 2),
+    promedio_matematica = round(mean(promedio_matematica, na.rm = TRUE), 2))
+
+# Ordenamiento de jurisdicciones según el promedio en Matemática.
+
+tabla_jurisdiccion <- tabla_jurisdiccion %>%
+  arrange(promedio_matematica)
+```
+
+```{r tabla_jurisdiccion_pivot}
+# Transformación de la tabla a formato largo y simplificación de nombres extensos para mejorar la visualización.
+
+tabla_jurisdiccion_pivot <- tabla_jurisdiccion %>%
+  pivot_longer(
+    cols = c(promedio_lengua, promedio_matematica),
+    names_to = "area",
+    values_to = "promedio") %>%
+  mutate(area = recode(area,
+    "promedio_lengua" = "Lengua",
+    "promedio_matematica" = "Matemática")) %>% 
+  mutate(jurisdiccion = recode(jurisdiccion,
+    "Tierra del Fuego, Antártida e Islas del Atlántico Sur" = "Tierra del Fuego",
+    "Ciudad Autónoma de Buenos Aires" = "CABA",
+    "Santiago del Estero" = "Sgo. del Estero"))
+```
+
+\noindent
+```{r grafico_comparativo_rendimiento_jurisdiccion, fig.height = 4, fig.width = 10}
+# Gráfico comparativo del rendimiento promedio por jurisdicción y área evaluada.
+
+ggplot(tabla_jurisdiccion_pivot, aes(
+  x = reorder(str_wrap(jurisdiccion, width = 10), promedio),
+  y = area,
+  fill = promedio)) +
+  geom_tile() +
+  geom_text(aes(label = round(promedio, 0)), size = 2) +
+  scale_fill_gradient(low = "magenta", high = "green") +
+  labs(
+    title = "Rendimiento promedio por jurisdicción",
+    x = "",
+    y = "",
+    fill = "Promedio",
+    caption = "Figura 3. Resultados promedio dividido por jurisdicción.") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.text.x = element_text(size = 8, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 8))
+```
+
+La figura 3, muestra que la Ciudad Autónoma de Buenos Aires presenta los promedios más altos en ambas materias. Además, en todas las jurisdicciones los resultados de Lengua superan a los de Matemática.
+
+A continuación, se comparan los rendimientos promedio de las escuelas según el sector y según el ámbito geográfico de localización.
+
+```{r promedio_escuela_pivot}
+# Transformación de la base de promedios escolares a formato largo para facilitar comparaciones gráficas.
+
+promedio_escuela_pivot <- promedio_escuela %>%
+  pivot_longer(
+    cols = c(promedio_lengua, promedio_matematica),
+    names_to = "area",
+    values_to = "promedio")
+```
+
+\noindent
+```{r grafico_rendimiento_por_sector, fig.height = 3, fig.width = 7}
+# Boxplots de la distribución del rendimiento promedio por materia según sector de gestión.
+
+ggplot(promedio_escuela_pivot, aes(x = sector, y = promedio, fill = sector)) +
+  geom_boxplot(outlier.size = 0.4, outlier.alpha = 0.5, outlier.colour = "purple2") +
+  facet_wrap(~ area, labeller = labeller(area = c("promedio_lengua" = "Lengua", "promedio_matematica" = "Matemática"))) +
+  labs(
+    title = "Distribución del rendimiento por materia según sector",
+    x = "Sector",
+    y = "Promedio",
+    caption = "Figura 4. Análisis de distribución y variabilidad de los promedios en Lengua y Matemática según sector") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10))
+```
+
+\noindent
+```{r rendimiento_por_ambito_grafico, fig.height = 3, fig.width = 7}
+# Boxplots de la distribución del rendimiento promedio por materia según ámbito geográfico.
+
+ggplot(promedio_escuela_pivot, aes(x = ambito, y = promedio, fill = ambito)) +
+  geom_boxplot(outlier.size = 0.4, outlier.alpha = 0.5, outlier.colour = "purple2") +
+  facet_wrap(~ area, labeller = labeller(area = c("promedio_lengua" = "Lengua", "promedio_matematica" = "Matemática"))) +
+  labs(
+    title = "Distribución del rendimiento por materia según ámbito",
+    x = "Ámbito",
+    y = "Promedio",
+    caption = "Figura 5. Análisis de distribución y variabilidad de los promedios en Lengua y Matemática según ámbito") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10))
+```
+
+Las figuras 4 y 5 revelan patrones similares según sector y ámbito. En ambas materias, las escuelas privadas y urbanas presentan mayores promedios que las estatales y rurales. Lengua exhibe una mayor dispersión, especialmente en escuelas estatales y rurales, mientras que Matemática presenta distribuciones más concentradas. En ambos gráficos se observan valores atípicos por encima del rango intercuartílico. Los boxplots fueron construidos a partir de promedios escolares calculados excluyendo valores faltantes en los puntajes. Los valores exactos de rendimiento promedio por sector y ámbito pueden consultarse en el Anexo 4.
+
+### Relación entre desempeño y gasto educativo
+
+```{r gasto_jurisdiccion}
+# Construcción de una base agregada a nivel jurisdicción. Se consideran únicamente escuelas estatales porque el gasto educativo disponible corresponde a ese sector.
+
+base_gasto <- base_filtrada %>%
+  # Conservamos solo escuelas de gestión estatal.
+  filter(sector == "Estatal") %>% 
+  # Agrupamos por jurisdicción.
+  group_by(jurisdiccion) %>% 
+  # Calculamos promedios de rendimiento y asociamos el gasto por alumno de cada jurisdicción.
+  summarise(
+    promedio_lengua = mean(lpuntaje, na.rm = TRUE),
+    promedio_matematica = mean(mpuntaje,na.rm = TRUE),
+    Gasto_x_alumno_estatal = base_presupuesto$Gasto_x_alumno_estatal[base_presupuesto$jurisdiccion == jurisdiccion[1]])
+```
+
+En esta sección se analiza la posible relación entre el gasto educativo por alumno estatal y el rendimiento promedio de los estudiantes en cada jurisdicción. La base consolidada incluye información de `r nrow(base_gasto)` jurisdicciones. A continuación se analiza un gráfico que relaciona el gasto educativo por alumno estatal con el rendimiento promedio en Matemática y Lengua.
+
+```{r relacion_gasto_rendimiento_matematica, fig.width=5, fig.height=3, fig.align='center'}
+# Gráfico de dispersión entre gasto educativo y rendimiento promedio en Matemática.
+
+ggplot(base_gasto, aes(x = Gasto_x_alumno_estatal, y = promedio_matematica)) +
+  geom_point(size = 2,  alpha = 0.7, color = "seagreen4") +
+  geom_text_repel(aes(label = jurisdiccion),  size = 2, nudge_y = 0.5, color = "gray20") +
+  geom_smooth(method = "lm", se = FALSE, color = "royalblue") +
+  labs(
+    x = "Gasto por estudiante estatal",
+    y = "Promedio de Matemática",
+    caption = "Figura 6. Rendimiento de Matemática según gasto educativo por estudiante estatal en pesos") +
+  theme_minimal() +
+  scale_x_continuous(labels = scales::comma, breaks = seq(0, 6000000, by = 1500000)) +
+  scale_y_continuous(limits = c(400, 550)) +
+  theme(axis.title.x = element_text(size = 8, face = "bold"),
+        axis.title.y = element_text(size = 8, face = "bold"))
+```
+
+```{r relacion_gasto_rendimiento_lengua, fig.width=5, fig.height=3, fig.align='center'}
+# Gráfico de dispersión entre gasto educativo y rendimiento promedio en Lengua.
+
+ggplot(base_gasto, aes(x = Gasto_x_alumno_estatal, y = promedio_lengua)) +
+  geom_point(size = 2,  alpha = 0.7, color = "seagreen4") +
+  geom_text_repel(aes(label = jurisdiccion),  size = 2, nudge_y = 0.5, color = "gray20") +
+  geom_smooth(method = "lm", se = FALSE, color = "royalblue") +
+  labs(
+    x = "Gasto por alumno estatal",
+    y = "Promedio de Lengua",
+    caption = "Figura 7. Rendimiento de Lengua según gasto educativo por estudiante estatal en pesos") +
+  theme_minimal() +
+  scale_x_continuous(labels = scales::comma,  breaks = seq(0, 6000000, by = 1500000)) +
+  scale_y_continuous(limits = c(400, 550)) +
+  theme(axis.title.x = element_text(size = 8, face = "bold"),
+        axis.title.y = element_text(size = 8, face = "bold"))
+```
+
+Las figuras 6 y 7 permiten observar una asociación positiva entre el gasto por alumno y el rendimiento promedio en ambas materias. Sin embargo, la Ciudad Autónoma de Buenos Aires presenta los mejores resultados sin ser la jurisdicción con mayor inversión por alumno.
+
+```{r correlaciones}
+# Cálculo de coeficientes de correlación lineal entre gasto y rendimiento.
+
+correlacion_matematica <- round(cor(base_gasto$Gasto_x_alumno_estatal, base_gasto$promedio_matematica), 2)
+
+correlacion_lengua <- round(cor(base_gasto$Gasto_x_alumno_estatal, base_gasto$promedio_lengua), 2)
+```
+
+Además, se calculan coeficientes de correlación para cuantificar la intensidad de la asociación entre el gasto educativo y el rendimiento promedio en cada área. Los mismos indican una correlación de `r correlacion_matematica` entre el gasto educativo y el rendimiento en Matemática, y de `r correlacion_lengua` en Lengua.
+
+### Distribución de puntajes según el nivel educativo de la madre
+
+Por último, se muestra un boxplot que refleja la dispersión y tendencia central de los puntajes de los alumnos, tanto en Matemática como en Lengua, según el nivel educativo de la madre.
+
+```{r base_puntaje_nivelEdMadre}
+# Construcción de una base en formato largo para comparar ambas materias. Se excluyen observaciones con datos faltantes en el nivel educativo de la madre.
+
+base_madres <- base_filtrada %>%
+  # Eliminamos casos sin información sobre educación de la madre.
+  filter(!is.na(Nivel_Ed_MadreX)) %>% 
+  # Reorganizamos los puntajes de Lengua y Matemática en una sola columna.
+  pivot_longer(cols = c(lpuntaje, mpuntaje),
+               names_to = "materia",
+               values_to = "puntaje")
+
+# Reemplazamos nombres técnicos de variables por etiquetas más claras.
+base_madres$materia <- factor(base_madres$materia,
+                       levels = c("lpuntaje", "mpuntaje"),
+                       labels = c("Lengua", "Matemática"))
+```
+
+\noindent
+```{r grafico_puntaje_nivelEdMadre, fig.width=7, fig.height=4}
+# Boxplots de distribución de puntajes según nivel educativo de la madre.
+
+ggplot(base_madres, aes(x = str_wrap(Nivel_Ed_MadreX, width = 15), y = puntaje)) +
+  geom_boxplot(fill = "#cdb4db", outlier.size = 0.4, outlier.alpha = 0.5, outlier.colour = "purple4") +
+  facet_wrap(~materia) +
+  labs(title = "Desigualdad de puntajes según nivel educativo de la madre",
+       x = "Nivel educativo",
+       y = "Puntaje",
+       caption = "Figura 8. Comparación de puntajes según nivel educativo de la madre") +
+  scale_y_continuous(limits = c(0, NA)) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+    axis.text.x = element_text(size = 8, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 8))
+```
+
+En la figura 8, tanto en Lengua como en Matemática, se puede ver que a medida que aumenta la escolaridad de la madre, la tendencia central de los puntajes aumenta. Así como vimos en las figuras 4 y 5, las cuales muestran las distribuciones del rendimiento según sector y ámbito, los puntajes de Lengua presentan mayor dispersión que en Matemática.
+
+\newpage
+## Discusión
+
+En este apartado se discuten los resultados obtenidos previamente, los cuales permiten identificar patrones en el desempeño educativo, independientemente de los factores de análisis. Entre ellos, se observa que los estudiantes presentan un desempeño en Matemática muy bajo. Esto no constituye una problemática aislada, sino una tendencia observada hace varios años en las escuelas y que puede haberse agudizado durante la pandemia debido al aislamiento y los cambios en los procesos de enseñanza.
+
+En cuanto a las características institucionales, aparecen diferencias importantes. Las escuelas privadas muestran en promedio mejores resultados que las estatales. Lo mismo ocurre al comparar ámbitos urbanos y rurales, donde las escuelas urbanas presentan mayores puntajes. Estas diferencias pueden estar asociadas a factores contextuales más amplios, como condiciones socioeconómicas y culturales de los estudiantes o recursos disponibles en cada tipo de institución. 
+
+Cuando se analiza el rendimiento por jurisdicción, se observan disparidades relevantes. CABA presenta los promedios más altos en ambas materias, aunque no necesariamente coincide con ser la jurisdicción con mayor gastos por estudiante. Esto muestra que el desempeño educativo no depende exclusivamente del nivel de inversión, sino que intervienen otros factores no observados en este análisis.
+
+En relación con el gasto educativo, existe una asociación positiva entre la inversión por estudiante estatal y el rendimiento promedio en Lengua y Matemática, coincidiendo con las correlaciones calculadas. Sin embargo, esto debe interpretarse con cautela, al tratarse de una comparación entre jurisdicciones y no de un análisis temporal. Como la información de gasto es para un único período, no es posible analizar variaciones internas ni establecer relaciones causales, por lo que los resultados deben entenderse como asociaciones descriptivas.
+
+Por último, el análisis según el nivel eductivo de la madre muestra una tendencia clara: a mayor nivel educativo materno, mayores son los puntajes promedio de los estudiantes en ambas áreas. Esto podría deberse a la importancia del contexto familiar y del capital educativo del hogar en el desempeño escolar.
+
+En conjunto, los resultados permiten describir un sistema educativo con fuertes desigualdades asociadas tanto a características institucionales como sociales. Al tratarse de un análisis descriptivo, no se pueden establecer relaciones causales, sino únicamente identificar patrones dentro de los datos analizados. Futuras investigaciones podrían incorporar información correspondiente a distintos períodos temporales o variables socioeconómicas adicionales, con el objetivo de profundizar el análisis de los factores asociados al rendimiento académico y evaluar posibles cambios en el tiempo.
+
+\newpage
+## Referencias bibliográficas
+
+\noindent 1. Ministerio de Capital Humano. (2024). *base_aprender_secu_2024.csv* [Base de datos]. Dirección Nacional de Evaluación, Información e Investigación Educativa, Secretaría de Educación.
+
+\noindent 2. Ministerio de Capital Humano. (2024). *presupuesto_educacion_2024.csv* [Base de datos]. Secretaría de Educación.
+
+\noindent 3. Dirección Nacional de Evaluación, Información e Investigación Educativa. (2025). *Síntesis de resultados del Nivel Secundario. Aprender 2024*. Secretaría de Educación,Ministerio de Capital Humano.
+https://www.argentina.gob.ar/sites/default/files/2024/10/sintesis_de_resultados_aprender_2024_nivel_secundario.pdf
+
+\noindent 4. Subsecretaría de Información y Evaluación Educativa. (2025). *Informe de resultados 2024. Educación Secundaria* (actualizado a noviembre 2025). Secretaría de Educación, Ministerio de Capital Humano https://www.argentina.gob.ar/sites/default/files/2024/10/aprender_2024-_corr_23_12.pdf
+
+\noindent 5. TN. (5 de junio de 2025). *Pruebas Aprender: la mitad de los estudiantes de secundaria no tiene conocimientos básicos de Matemáticas* https://tn.com.ar/sociedad/2025/06/05/pruebas-aprender-2024-las-razones-de-la-caida-en-matematica-sin-un-solo-alumno-de-5-y-6-con-nivel-avanzado/
+
+
+\newpage
+## Anexos
+
+### Anexo 1. Tablas descriptivas de las bases de datos (variables numéricas)
+
+### Base Aprender
+
+La siguiente tabla presenta medidas descriptivas de los puntajes de Lengua y Matemática correspondientes a la base Aprender. Los estadísticos fueron calculados excluyendo los valores faltantes.
+
+```{r vars_numericas_aprender}
+# Construcción de tabla descriptiva para los puntajes de Lengua y Matemática.
+
+tabla_numericas_aprender <- rbind(
+  cbind(Area = "Lengua", resumen_numerico(base_aprender$lpuntaje)),
+  cbind(Area = "Matemática",  resumen_numerico(base_aprender$mpuntaje)))
+
+
+# Generación de tabla formateada para incluir en el informe.
+
+kable(
+  tabla_numericas_aprender,
+  col.names = c("Área", "Media", "Mediana", "Desvío", "Mínimo", "Máximo", "Rango"),
+  digits = 2,
+  caption = "Resumen descriptivo de puntajes") %>%
+  kable_styling(font_size = 11, latex_options = "hold_position")
+```
+
+### Base Presupuesto
+
+La tabla resume las principales medidas descriptivas del gasto educativo estatal por estudiante para las distintas jurisdicciones del país. No se registraron valores faltantes en esta variable.
+
+```{r vars_numericas_presupuesto}
+# Construcción de tabla descriptiva del gasto educativo por estudiante estatal.
+
+tabla_numericas_presupuesto <- cbind(
+  Variable = "Gasto por estudiante estatal",
+  resumen_numerico(base_presupuesto$Gasto_x_alumno_estatal)
+)
+
+# Generación de tabla resumen formateada.
+
+kable(
+  tabla_numericas_presupuesto,
+  col.names = c("Variable", "Media", "Mediana", "Desvío", "Mínimo", "Máximo", "Rango"),
+  digits = 2,
+  caption = "Resumen descriptivo del gasto por estudiante estatal") %>%
+  kable_styling(font_size = 11, latex_options = "hold_position")
+```
+
+\newpage
+### Anexo 2. Tablas descriptivas de las bases de datos (variables categóricas)
+
+La siguiente tabla presenta distribuciones de frecuencias absolutas y relativas de las principales variables categóricas analizadas de la base aprender. En las variables de desempeño se conservaron los valores faltantes para reflejar la proporción de datos no registrados.
+
+```{r resumen_frecuencias_aprender}
+# Construcción de tabla de frecuencias para variables categóricas.
+
+tabla_categoricas <- rbind(
+  tabla_frecuencias(base_aprender, sector, "Sector"),
+  tabla_frecuencias(base_aprender, ambito, "Ámbito"),
+  tabla_frecuencias(base_aprender, ldesemp, "Desempeño Lengua"),
+  tabla_frecuencias(base_aprender, mdesemp, "Desempeño Matemática"),
+  tabla_frecuencias(base_aprender, Nivel_Ed_MadreX, "Nivel Ed. de Madre"))
+
+# Generación de tabla de frecuencias absolutas y relativas.
+
+kable(tabla_categoricas,
+  col.names = c("Variable", "Categoría", "Frec. absoluta", "Frec. relativa"),
+  caption = "Frecuencias de variables categóricas") %>% 
+  kable_styling(font_size = 11, latex_options = "hold_position")
+```
+
+\newpage
+### Anexo 3. Histograma de distribución de puntajes en Lengua y Matemática
+
+El siguiente histograma muestra la distribución de los puntajes individuales de Lengua y Matemática utilizando la base filtrada. Los valores faltantes fueron excluidos del gráfico.
+
+\noindent
+```{r grafico_distribucion_puntajes, fig.height= 5, fig.width= 7, fig.align= "center"}
+# Histograma de distribución de puntajes en Lengua y Matemática.
+
+ggplot(puntajes, aes(x = puntaje)) +
+  geom_histogram(bins = 30, fill = "slateblue", color = "white") +
+  facet_wrap(~ area, labeller = labeller(area = c("lpuntaje" = "Lengua", "mpuntaje" = "Matemática"))) +
+  labs(
+    title = "Distribución de puntajes",
+    x = "Puntaje",
+    y = "Frecuencia",
+    caption = "Figura 2. Frecuencia de puntajes en Lengua y Matemática") +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 800, by = 150)) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+\newpage
+### Anexo 4. Tablas de rendimiento por sector y ámbito
+
+Las siguientes tablas resumen el rendimiento promedio de las escuelas según sector de gestión y ámbito geográfico. Los promedios fueron calculados excluyendo valores faltantes en los puntajes.
+
+```{r rendimiento_por_sector_lengua}
+# Tabla descriptiva del rendimiento promedio en Lengua según sector de gestión.
+
+tabla_sector_lengua <- promedio_escuela %>%
+  group_by(sector) %>%
+  group_modify(~ resumen_numerico(.x$promedio_lengua))
+
+# Generación de tabla resumen.
+
+kable(
+  tabla_sector_lengua,
+  col.names = c("Sector", "Media", "Mediana", "Desvío", "Mínimo", "Máximo", "Rango"),
+  caption = "Promedio de puntajes según sector en Lengua")
+```
+
+```{r rendimiento_por_sector_matematica}
+# Tabla descriptiva del rendimiento promedio en Matemática según sector de gestión.
+
+tabla_sector_mate <- promedio_escuela %>%
+  group_by(sector) %>%
+  group_modify(~ resumen_numerico(.x$promedio_matematica))
+
+# Generación de tabla resumen.
+
+kable(
+  tabla_sector_mate,
+  col.names = c("Sector", "Media", "Mediana", "Desvío", "Mínimo", "Máximo", "Rango"),
+  caption = "Promedio de puntajes según sector en Matemática")
+```
+
+```{r rendimiento_por_ambito_lengua}
+# Tabla descriptiva del rendimiento promedio en Lengua según ámbito geográfico.
+
+tabla_ambito_lengua <- promedio_escuela %>%
+  group_by(ambito) %>%
+  group_modify(~ resumen_numerico(.x$promedio_lengua))
+
+# Generación de tabla resumen.
+
+kable(
+  tabla_ambito_lengua,
+  col.names = c("Ámbito", "Media", "Mediana", "Desvío", "Mínimo", "Máximo", "Rango"),
+  caption = "Promedio de puntajes según ámbito en Lengua")
+```
+
+```{r rendimiento_por_ambito_matematica}
+# Tabla descriptiva del rendimiento promedio en Matemática según ámbito geográfico.
+
+tabla_ambito_mate <- promedio_escuela %>%
+  group_by(ambito) %>%
+  group_modify(~ resumen_numerico(.x$promedio_matematica))
+
+# Generación de tabla resumen.
+
+kable(
+  tabla_ambito_mate,
+  col.names = c("Ámbito", "Media", "Mediana", "Desvío", "Mínimo", "Máximo", "Rango"),
+  caption = "Promedio de puntajes según ámbito en Matemática")
+```

@@ -1,0 +1,241 @@
+---
+title: "Funciones y Datos Faltantes"
+subtitle: "Práctica 1 - Laboratorio de Datos"
+author: "Luciana Lorenzo"
+date: "`r Sys.Date()`"
+
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: false
+  fontsize: 10pt
+  geometry: margin=1.5cm
+  header-includes:
+  - \usepackage{setspace}
+  - \singlespacing
+  - \usepackage{titlesec}
+  - \titlespacing*{\section}{0pt}{2ex}{1ex}
+  - \titlespacing*{\subsection}{0pt}{1.5ex}{0.8ex}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE, comment = NA)
+```
+
+\newpage
+
+```{r}
+library(dplyr)
+library(tidyverse)
+```
+
+En la siguiente práctica, vamos a trabajar sobre algunos aspectos básicos del lenguaje R. Para ello, vamos a practicar con datos sobre las notas escolares de una serie de alumnos de primaria.
+
+## Ejercicio 1
+
+*En la escuela primaria en cuestión se quedaron sin internet así que nos pasaron los datos por teléfono. Nos toca la ardua tarea de armar los vectores a mano. Necesitamos un vector para cada materia, que se llamen matematica, lengua, biologia, historia. Las notas a transcribir son las siguientes:*
+* *Matemática: 5, 8, 9, 10, 3, 6*
+* *Lengua: 7, 8, 6, 10, 8, 6*
+* *Biología: 7, 5, 6, 10, 6, 4*
+* *Historia: 10, 9, 8, 7, 8, 7*
+
+Vamos a usar datos de notas escolares de una serie de alumnos.
+
+```{r}
+matematica <- c(5, 8, 9, 10, 3, 6)
+lengua <- c(7, 8, 6, 10, 8, 6)
+biologia <- c(7, 5, 6, 10, 6, 4)
+historia <- c(10, 9, 8, 7, 8, 7)
+```
+
+---
+
+## Ejercicio 2
+
+*¿Cuál es el promedio para cada materia?*
+
+```{r}
+promedio_mate <- mean(matematica) 
+promedio_lengua <- mean(lengua)
+promedio_biolgia <- mean(biologia)
+promedio_historia <- mean(historia)
+
+promedio_mate
+promedio_lengua
+promedio_biolgia
+promedio_historia
+```
+---
+
+## Ejercicio 3
+
+*Desde la escuela, les interesa saber cuál es la proporción de estudiantes que desaprobaron matemática (se aprueba con 7). Para saberlo, debemos seguir los siguientes pasos SOLO con código de R:*
+*a) Identificar a los estudiantes desaprobados;*
+*b) Contar la cantidad de estudiantes desaprobados;*
+*c) Dividir la cantidad de desaprobados por el total de estudiantes.*
+*Proporción de estudiantes desaprobados en matemática (aprueba con 7).*    
+
+```{r}
+# Identificar estudiantes desaprobados
+desaprobados_mate <- which(matematica < 7)
+
+# Contar cantidad de desaprobados
+cant_desaprobados <- length(desaprobados_mate)
+
+# Dividir por la cantidad total de estudiantes
+promedio_desaprobados_mate <- cant_desaprobados / length(matematica)
+
+promedio_desaprobados_mate
+```
+---
+
+## Ejercicio 4 y 5
+
+*Ahora que sabemos calcular la proporción de estudiantes desaprobados, sería interesante conocer:*
+*a) ¿Cuál es la materia con mayor proporción de desaprobados?*
+*b) ¿Cuál fue la proporción de desaprobados en dicha materia?*
+
+*¿Podrías hacer una función que permita calcular la proporción de desaprobados para cualquier materia? La función se puede llamar prop_desaprobados. Mostranos qué resultado arroja para cada materia.*
+
+```{r}
+prop_desaprobados <- function(data){
+  desprobados <- which(data < 7)
+  cant_desaprobados <- length(desprobados)
+  promedio_desaprobados <- cant_desaprobados / length(data)
+  return(promedio_desaprobados)
+}
+```
+
+```{r}
+prop_desaprobados(matematica)
+prop_desaprobados(lengua)
+prop_desaprobados(biologia)
+prop_desaprobados(historia)
+```
+Veo cual es la de mayor proporcion de desaprobados y calculo cuanto era
+
+```{r}
+proporciones <- c(
+  Matemática = prop_desaprobados(matematica),
+  Lengua = prop_desaprobados(lengua),
+  Biología = prop_desaprobados(biologia),
+  Historia = prop_desaprobados(historia)
+)
+
+mayor_prop_desaprobados <- which.max(proporciones)
+mayor_prop_desaprobados
+
+prop_desaprobados(biologia)
+```
+Resultó que la materia con mayor proporción de desaprobados fue biología, con el 66%.
+
+---
+
+## Ejercicio 6
+
+*Inesperadamente, nos llama la directora de la escuela para avisarnos que se olvidó de pasarnos las notas de Educación física. Así que vamos a tener que crear otro vector llamado ed_fisica que contenga las siguientes notas:*
+*1Educación Física: sin nota, 10, sin nota, 9, sin nota, 8*
+*Atención: hay algunos estudiantes que faltaron a clases así que no tienen nota. ¿Cómo lo expresamos en R?*
+
+```{r}
+#armo mi vector con las notas de ed fisica
+ed_fisica <- c(NA, 10, NA, 9, NA, 8)
+```
+
+*a) Cual es el promedio de calificaciones en Educación Fisica?*
+
+```{r}
+promedio_ed_fisica <- mean(ed_fisica, na.rm = TRUE)
+promedio_ed_fisica
+```
+El promedio es 9, los NA se tienen que sacar para que la función mean pueda hacer los calculos, si no devolvería NA.
+
+*b) Como vemos, los chicos muestran buenas calificaciones en Educación Física. Pero, la realidad, es que hay varios ausentes. Desde la escuela surge la pregunta sobre el desempeño de esos estudiantes en lengua y matemática. Podés armar dos subconjuntos llamados matematica_baja_asistencia, lengua_baja_asistencia*
+
+```{r}
+indices_ausentes <- is.na(ed_fisica)
+matematica_baja_asistencia <- matematica[indices_ausentes]
+lengua_baja_asistencia <- lengua[indices_ausentes]
+
+matematica_baja_asistencia
+lengua_baja_asistencia
+
+prom_baja_asistencia_mat <- mean(matematica_baja_asistencia)
+prom_baja_asistencia_lengua <- mean(lengua_baja_asistencia)
+
+prom_baja_asistencia_mat
+prom_baja_asistencia_lengua
+```
+*c) ¿Qué conclusiones podrías extraer sobre estos estudiantes a partir de las notas obtenidas en lengua y matemática? ¿Les suele ir mal en todas las materias, en algunas?*
+
+Se puede observar que el promedio de notas de matemática entre los ausentes es más bajo que el promedio general, mientras que el de lengua se mantiene parecido. Parece ser que los ausentes en educación física tienden a tener notas más bajas en matemática, pero pueden llegar a tener buenas notas igual en alguna de las materias. No necesariamente les va mal en las dos.
+
+---
+
+## Ejercicio 7
+
+*Hasta ahora, veniamos trabajando con las notas sueltas pero, a partir de otra conversación con la directora, obtuvimos los nombres de los alumnos. Creá un vector con los siguientes nombres:*
+*nombres : Jorge, Juan, Catalina, Sofia, Natalia, Cristian*
+*Atención: hay algunos estudiantes que faltaron a clases así que no tienen nota. ¿Cómo lo expresamos en R?*
+
+```{r}
+nombres <- c("Jorge", "Juan", "Catalina", "Sofia", "Natalia", "Cristian")
+```
+
+**8)** *A partir de tener los nombres, la institución nos pide implementar una función (llamada “informe_notas”) a la que le pasemos un nombre y nos diga las notas de dicho estudiante en cada materia.*
+
+```{r}
+informe_notas <- function(data) {
+  
+  indice_estudiante <- which(nombres == data)
+  
+  informe <- paste("Informe de notas de", nombres[indice_estudiante],
+               "\nMatemática =", matematica[indice_estudiante],
+               "\nLengua =", lengua[indice_estudiante],
+               "\nBiología =", biologia[indice_estudiante],
+               "\nHistoria =", historia[indice_estudiante],
+               "\nEdFísica =", ed_fisica[indice_estudiante],"\n")
+  
+  return(informe)
+}
+
+cat(informe_notas("Jorge"))
+cat(informe_notas("Juan"))
+cat(informe_notas("Catalina"))
+cat(informe_notas("Sofia"))
+cat(informe_notas("Natalua"))
+cat(informe_notas("Cristian"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   
+    
+    

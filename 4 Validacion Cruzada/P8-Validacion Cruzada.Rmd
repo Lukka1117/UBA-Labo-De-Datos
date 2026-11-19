@@ -1,0 +1,566 @@
+---
+title: "Validación Cruzada"
+subtitle: "Práctica 8 - Laboratorio de Datos"
+author: "Luciana Lorenzo"
+date: "`r Sys.Date()`"
+
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: false
+  fontsize: 10pt
+  geometry: margin=1.5cm
+  header-includes:
+  - \usepackage{setspace}
+  - \singlespacing
+  - \usepackage{titlesec}
+  - \titlespacing*{\section}{0pt}{2ex}{1ex}
+  - \titlespacing*{\subsection}{0pt}{1.5ex}{0.8ex}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE, comment = NA)
+```
+
+\newpage
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(boot)
+library(knitr)
+library(caret)
+library(corrplot)
+```
+
+---
+
+##Ejercicio 1 : Regresión polinomial
+
+*La técnica conocida como LIDAR (Light Detection and Ranging) utiliza la reflexión de pulsos de luz láser para detectar compuestos químicos presentes en la atmósfera. Esta tecnología ha demostrado ser una herramienta eficiente para monitorear la distribución de diversos contaminantes atmosféricos (Sigrist, 1994). En el archivo lidar.txt se encuentran observaciones obtenidas mediante esta técnica. La variable rang representa la distancia recorrida por el pulso de luz antes de ser reflejado de regreso hacia su fuente. La variable logratio corresponde al logaritmo del cociente entre las intensidades recibidas de dos fuentes láser de distinta frecuencia.*
+
+**1.1)** *Ralice un gráfico de dispersión de range(X) versus logratio(Y)
+
+```{r datos_lidar}
+datos_lidar <- read.table("lidar.txt", header = TRUE)
+```
+
+```{r grafico_lidar}
+ggplot(datos_lidar, aes(x = rang, y = logratio)) +
+  geom_point(alpha = 0.6, color = "hotpink") +
+  labs(title = "Dispersión entre range y logratio",
+       x = "Rango",
+       y = "Logratio") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+**1.2)** *Describa brevemente la relación observada entre ambas variables. Parece lineal? Se observan zonas con distinta curvatura?*
+
+La relación es notoriamente no lineal. Primero parece que a medida que sube el rango, el logratio se mantiene en valores similares, pero a partir del rango 550 aprox el logratio tiene una bajada pronunciada a medida q sube el rango. Y después, pasando los 600 de rango aprox, la caida se suaviza un poco, pero la dispersión de los puntos aumenta.
+
+**2.1)** *Divida el conjunto de datos en entrenamiento y testeo, con 70% y 30% de los tados. (Hint: defina una variable id auxiliar)*
+
+```{r funcion_training}
+train_test_split <- function(df, prop_train){
+  if (!("id" %in% df)){   #el df tiene una columna id?
+    df$id <- 1:dim(df)[1] #le asigna a cada fila su numero de posicion original
+  }
+  train <- df %>% slice_sample(prop = prop_train)
+  test <- df %>% filter(!(id %in% train$id))
+  return(list(train = train, test = test))
+}
+```
+
+```{r lidar_division}
+set.seed(1) #seteo la semilla para q mis datos sean reproducibles
+
+datos_divididos <- train_test_split(datos_lidar, prop_train = 0.7)
+
+train_data <- datos_divididos$train
+test_data <-  datos_divididos$test
+```
+
+**2.2)** *Ajuste modelos polinomiales de grados p pertenciente a {1,2,...,15} con los datos de entrenamiento y para cada uno de ellos calcular el error cuadrático medio (MSE) de entrenamiento.*
+
+```{r calculo_MSE}
+calculo_MSE <- function(y_pred, y_true){
+  res <- mean((y_pred - y_true)**2 )
+  return(res)
+}
+```
+
+```{r lidar_MSE}
+mse_train <- numeric(15) #crea un vector vacio para almacenar los 15 mse
+
+for(p in 1:15) {
+  f_polinomio <- as.formula(paste0("logratio ~ poly(rang, ", p, ")"))
+  modelo <- lm(f_polinomio, data = train_data)
+  predicciones_train <- predict(modelo, newdata = train_data)
+  mse_train[p] <- calculo_MSE(train_data$logratio, predicciones_train)
+}
+
+mse_por_grado <- data.frame(
+  Grado = 1:15,
+  MSE_train = mse_train
+)
+
+#traspongo la tabla
+mse_por_grado2 <- as.data.frame(t(mse_por_grado$MSE_train))
+colnames(mse_por_grado2) <- paste0("p = ", mse_por_grado$Grado)
+
+kable(mse_por_grado2,
+      caption = "Error Cuadrático Medio (ECM) de entrenamiento para cada grado polinomial")
+```
+**2.3)** *Graficar el MSE de entrenamiento en función del grado del polinomio e indicar qué comportamiento observa al aumentar el grado del modelo*
+
+```{r grafico_mse}
+ggplot(mse_por_grado, aes(x = Grado, y = MSE_train)) +
+  geom_line(color = "royalblue", size = 1) +
+  geom_point(color = "navy", size = 2) +
+  scale_x_continuous(breaks = 1:15) +
+  labs(title = "Evolución del ECM de Entrenamiento según el Grado",
+       x = "Grado del Polinomio (p)",
+       y = "Error Cuadrático Medio (MSE)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+El error cuadrático medio disminuye considerablemente a medida que aumenta en los primeros grados, a partir del grado 6 el MSE ya no disminuye tanto y en grados mas altos se mantiene bastante estable. El menor es el de grado 15 pero no es conveniente elegirlo porq le agrega complejidad innecesaria al modelo. Con un grado 4 o 5 puede que ya represente bien el comportamiento de los datos, el grado 15 ya haria un sobreajuste. 
+
+*A continuación utilizar validación cruzada de K = 10 folds para seleccionar grado del polinomio
+
+**3.1)** *Estime el MSE de validación cruzada para cada grado entre 1 y 15. Qué grado deberia escogerse para el modelo final?*
+
+```{r validacion_k_fold}
+seleccion_grado <- function(
+    df,
+    grado_max,
+    variable_respuesta,
+    predictora,
+    K,
+    seed = 0){
+  
+  set.seed(seed)
+  folds <- createFolds(df[,variable_respuesta], k = K) #tabla[fila, cols]
+  #traeme todas las filas. Devuelve una lista de 5 elementos, cada elemento es un vector
+  #que contiene los numeros de fila (ind) que se usan para validar
+  
+  MSEv <- numeric(grado_max)
+  
+  for (p in 1:grado_max){
+    MSE <- numeric(K)
+    f <-  as.formula(
+      paste0(variable_respuesta," ~ poly(", predictora,", ", p, ")")
+    )
+    for (k in 1:K){
+      indices_v <- folds[[k]] #toma una particion (filas)
+      modelo <- lm(f, data = df[-indices_v,]) #entrenael resto
+      predichos <- predict(modelo, df[indices_v,]) #predice la particion
+      #trae las filas con todas sus columans
+      MSE[k] <- calculo_MSE(predichos, df[indices_v, variable_respuesta])
+      #le doy los valores reales de Y para las filas de indices_v
+    }
+    MSEv[p] <- mean(MSE)
+  }
+  return(list(MSEv = MSEv, folds = folds))
+}
+```
+
+```{r mse_por_grado-VC}
+res_grados <- seleccion_grado(train_data, 15, "logratio", "rang", 10, seed = 0)
+res_grados
+```
+Aunque el minimo MSE esta en el polinomio grado 10, se ve que desde el grado 4 o 5 el error se estabiliza y las mejoras son casi insigniifcantes. Por esto, no vale la pena elegir un polinomio de grado alto como el 10 ya que agrega complejidad al modelo por mejoras muy chicas. Yo elegiría el grado 4 como ideal, asi captura el comportamiento del modelo sin complejizar ni arriesgar overfitting.
+
+**3.2)** *Graficar el MSE promedio de validacion cruzada en función del grado*
+
+```{r MSEv_df}
+MSEv_df <- data.frame(
+  Grado = 1:15,
+  MSE_v = res_grados$MSEv
+)
+```
+
+```{r graifco_MSEv}
+ggplot(MSEv_df, aes(x = Grado, y = MSE_v)) +
+  geom_line(color = "hotpink", size = 1) +
+  geom_point(color = "coral", size = 2) +
+  scale_x_continuous(breaks = 1:15) +
+  labs(title = "Evolución del MSE por validación cruzada K=10",
+       x = "Grado del Polinomio (p)",
+       y = "Error Cuadrático Medio de Validación (MSE)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+**3.3)** *Comparar el comportamiento del MSE de entrenamiento y el MSE de validacion cruzada. Qué diferencias se ven?*
+
+En el MSE de entrenamiento los errores sifuen disminuyendo hasta los grados mas altos, aunque los ultimos bastante planchado, nunca sube porq el modelo usa los datos que ya conoce para ajustarse cada vez más a los datos. En el MSE de validación cruzada se ve que la curva baja, se mantiene masomenos al mismo nivel unos  grados, y en los ultimo 3 grados comienza a subir de vuelta.
+
+**4.1)** *Ajustar nuevamente el modelo usando el grado seleccionado sobre el conjunto completo de datos.*
+
+```{r grsfico_lidar_poly}
+ggplot(datos_lidar, aes(x = rang, y = logratio)) +
+  geom_point(alpha = 0.6, color = "hotpink") +
+  geom_smooth(method = lm, formula = (y~poly(x, 4)), se = FALSE, color = "green") +
+  labs(title = "Dispersión entre range y logratio",
+       x = "Rango",
+       y = "Logratio") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+**4.2)** *Interpretar el resultado obtenido. El modelo parece capturara adecuadamente la relación entre las variaboles? El MSE sobre el dataset de testeo es comparable con el error de validación?*
+
+El modelo parece que si captura adecuadamente la relación entre las variables. Logra seguir la curvatura que generan los puntos en el gráfico sin sobreajustarse, especialmente en la parte final. 
+El error cuadrático medio obtenido sobre el conjunto de testeo es comparable con el estimado por validación cruzada. El MSE sobre el conjunto de testeo dio 0.007601 y el estimado por validacion cruzada con 10 folds dio 0.008160. La diferencia entre esos dos valores es minima, los dos evalúan el rendimiento del modelo usando datos independientes que no participaron en el entrenamiento, pero la validación cruzada logra una estimación con menor vairanza por promediar el error de 10 particiones en lugar de un unico testeo con datos al azar.
+
+**5.1)** *Comparar visualmente el modelo seleccionado con el modelo polinomico de grado 15*
+
+```{r grsfico_lidar_poly_comp}
+ggplot(datos_lidar, aes(x = rang, y = logratio)) +
+  geom_point(alpha = 0.6, color = "hotpink") +
+  geom_smooth(method = lm, formula = (y~poly(x, 4)), se = FALSE, 
+              aes(color = "Grado 4"), linetype = "dashed") +
+  geom_smooth(method = lm, formula = (y~poly(x, 15)), se = FALSE, 
+              aes(color = "Grado 15")) +
+  scale_color_manual(values = c("Grado 4" = "purple",
+                                "Grado 15" = "green3")) +
+  labs(title = "Dispersión entre range y logratio",
+       x = "Rango",
+       y = "Logratio") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+**5.2)** *Cual de los dos modelos se espera que tenga mejor capacidad predictiva sobre nuevas observaciones?*
+
+Se espera que el modelo de grado 4 tenga mejor capacidad predictiva, ya que generaliza mejor al capturar la tendencia de los datos. El de grado 15 hace curvas raras para pegarse lo mas posible a los puntos existentes, causando sobreajuste y bajando la capacidad de predicción de nuevas observaciones por ser hipersensible a la muestra de entrenamiento particular. 
+
+**6)** *Repetir el procedimiento utilizando VC de k = 5 particiones y comparar el grado seleccionado con el obtenido anteriormente. Cambian las conclusiones?*
+
+```{r mse_lidar_k5}
+res_grados_k5 <- seleccion_grado(train_data, 15, "logratio", "rang", 5, seed = 0)
+res_grados_k5
+```
+
+```{r MSEv_df_k5}
+MSEv_df_k5 <- data.frame(
+  Grado = 1:15,
+  MSE_v = res_grados_k5$MSEv
+)
+```
+
+```{r graifco_MSEv_k5}
+ggplot(MSEv_df_k5, aes(x = Grado, y = MSE_v)) +
+  geom_line(color = "purple", size = 1) +
+  geom_point(color = "coral", size = 2) +
+  scale_x_continuous(breaks = 1:15) +
+  labs(title = "Evolución del MSE por validación cruzada K=5",
+       x = "Grado del Polinomio (p)",
+       y = "Error Cuadrático Medio de Validación (MSE)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+El MSE del grado 4 obtenido con VC usando 5 particiones es de 0.008662250, y usando 10 particiones era de 0.008159733. Los valores son casi iguales, tienen una diferencia muy mínima. Y viendo los gráficos de las dos particiones, los dos muestran el mismo comportamiento de los valores de MSE dependiendo del grado del polinomio, lo único diferente es que los valores de K = 10 son apenas mas chicos que los de K = 5, pero tiene sentido porq, al usar más particiones, puede dedicar mas porcentaje de datos al entrenamiento en cada iteración. Pero las conclusiones no van a cambiar, el polinomio de grado 4 sigue siendo el más óptimo.
+
+## Ejercicio 2
+
+*El archivo jugadores.csv contiene información de futbolistas profesionales. La variable value_euro representa el valor de mercado estimado del jugador (en euros). Las demás variables describen características físicas, habilidades deportivas, experiencia y posición en el campo de juego. El objetivo de este ejercicio es construir un modelo de regresión lineal que permita explicar el valor de mercado de los jugadores a partir de sus características.*
+
+**1.1)** *Cargar el conjunto de datos y determinar cuántas observaciones tiene, cuantas variables predictoras contiene, cuáles son las variables categóricas y cuáles las numéricas. E identificar cuáles variables son una puntuacion en escala de 1 a 5. Analizar por qué no es adecuado utilizar variables dummies para incorporarlas como predictoras.*
+
+```{r datos_jugadores}
+datos_jugadores <- read.csv("jugadores.csv", stringsAsFactors = TRUE)
+
+str(datos_jugadores)
+summary(datos_jugadores)
+```
+El dataframe contiene 563 observaciones y 18 vairables. Tiene 16 variables predictoras, las 2 restantes son el nombre del futbolista y el valor en euros que es lo que queremos predecir. Como variables categóricas tenemos name, preferred_foot y position, el resto correspondientes a características físicas, experiencia, etc, son numéricas. Las variables que se puntuan en una escala del 1 al 5 son international_reputation.1.5., skill_moves.1.5. y weak_foot.1.5.
+No sería adecuado usar variables dummies para incorporarlas como predictoras porque son puntuaciones que tienen un sentido, un 4 es mas que un 2 por ejemplo. Pero si usamos dummies R las transforma en categorías aisladas y el modelo pierde esa jerarquia de puntaje. Además, al usar dummies, el modelo tiene q calcular cuatro coeficientes distintos para una sola escala en lugar de usar uno solo numperico, lo que llena el modelo de parámetros innecesarios y aumenta el riesgo de sobreajuste.
+
+**1.2)** *Realizar un análisis exploratorio de los datos. Gráficos, resumenes estadisticos q permitan describir las principales características del conjunto de datos.*
+
+Voy a mirar cómo se distribuyen los precios en euros de los jugadores y despues graficos con métricas importantes como edad, valoración general o potencial. También puedo mirar si las categóricas afectan el precio o no.
+
+```{r jugadores_exploracion}
+resumen_Value <- data.frame(
+  Métrica = c("Mínimo", "Q1", "Mediana", "Media", "Q3", "Máximo"),
+  Valor_Euros = as.numeric(summary(datos_jugadores$value_euro))
+)
+
+kable(resumen_Value, 
+      caption = "Estadísticos descriptivos del Valor de Mercado (en Euros)")
+```
+
+En los resumenes estadísticos de los valores de los jugadores se ve que hay una gran diferencia entre la media (15598423) y la mediana (8500000). La mediana me dice que el 50% de los jugadores vale 8.5millones o menos y la otra mitad vale 8.5millones o más. Pero el promedio al ser casi el doble, me dice que esta siendo influenciado por los valores extremos de los jugadores de mayor valor, donde solo el 25% de los jugadores superan los 19millones de euros.
+
+Voy a hacer una matriz de correlación para ver que variables podrian afectar más al valor del jugador, sin las categóricas
+
+```{r variables_correlacion}
+jugadores_numericas <- datos_jugadores %>% 
+  select(value_euro, age, height_cm, weight_kgs, overall_rating, potential,
+         international_reputation.1.5., skill_moves.1.5., weak_foot.1.5.,
+         shot_power, long_shots, short_passing, long_passing, dribbling, interceptions)
+
+#matriz de correlacion
+matriz_corr <- cor(jugadores_numericas, use = "complete.obs")
+
+corrplot(matriz_corr, 
+         method = "color",         # pinta los cuadraditos enteros
+         type = "full",            # muestra toda la matriz, se puede mostrar media
+         order = "hclust",         # agrupa automáticamente las variables que se mueven juntas
+         tl.col = "gray30",        # color del texto de las variables
+         tl.srt = 45,              # rotación de los textos
+         tl.cex = 0.8,             # cambia el tamaño de las variables
+         addCoef.col = "black",    # te dibuja el número adentro para leerlo exacto
+         number.cex = 0.4,         # tamaño del número de correlación
+         )
+```
+En un gráfico de correlación, los valores van de -1 a 1. Una correlación cercana a 1 significa una correlación positiva fuerte, si la variable sube, el precio del jugador sube. Y una correlacion cercana a -1 es una correlación negativa fuerte, si esa variable sube, el precio baja. En el gráfico vemos que para valor en euros, las variables con mayor correlación positiva son reputación internacional, potencial y valoracion general. No tiene correlaciones negativas fuertes. Voy a agregar un gráfico de la edad igual aunque de baja correlación.
+
+```{r grafico_precio_potencial}
+ggplot(datos_jugadores, aes(x = potential, y = value_euro)) +
+  geom_point(alpha = 0.2, color = "royalblue") +
+  scale_y_continuous(labels = scales::label_number(big.mark = ".", suffix = " €")) +
+  labs(title = "Valor vs. Potencial", 
+       x = "Potencial", 
+       y = "Precio en Euros") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+Viendo el valor de los jugadores en base a su potencial, se ve que hasta un potencial de aprox 70-75 los precios casi no aumentan, pero despues de eso a medida que aumenta el potencial, el precio del jugador aumenta considerablemente. La relación no es lineal, parece tener un comportamiento exponencial o polinómico
+
+```{r grafico_precio_valoracion}
+ggplot(datos_jugadores, aes(x = overall_rating, y = value_euro)) +
+  geom_point(alpha = 0.2, color = "darkorchid") +
+  scale_y_continuous(labels = scales::label_number(big.mark = ".", suffix = " €")) +
+  labs(title = "Valor vs. Valoración General", 
+       x = "Overall (Valoración General)", 
+       y = "Precio en Euros") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+El valor de los jugadores en base a la valoración general tiene un comportamiento casi igual al de potencial pero es un poco mas marcado. En el tramo que sube hay menos dispersión de puntos. Esta relación tampoco es lineal.
+
+```{r grafico_precio_repInternacional}
+ggplot(datos_jugadores, aes(x = international_reputation.1.5., y = value_euro)) +
+  geom_point(alpha = 0.2, color = "coral") +
+  scale_y_continuous(labels = scales::label_number(big.mark = ".", suffix = " €")) +
+  labs(title = "Valor vs. Reputación Internacional", 
+       x = "Reputación Internacional", 
+       y = "Precio en Euros") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+Al ver la relación entre la reputación internacional y el valor de los jugadores, se podría decir que a medida que la reputación sube, la nube de puntos se mueve hacia arriba. Parece que a mayor reputación internacional, mayor precio en euros. Hay muy pocos jugadores con reputación internacional 5, pero se ve que ya comienzan en valores altos cercanos a los 45millones.
+
+```{r grafico_precio_edad}
+ggplot(datos_jugadores, aes(x = age, y = value_euro)) +
+  geom_point(alpha = 0.2, color = "green") +
+  scale_y_continuous(labels = scales::label_number(big.mark = ".", suffix = " €")) +
+  labs(title = "Valor vs. Edad", 
+       x = "Edad", 
+       y = "Precio en Euros") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+El valor de los jugadores en relación a la edad tienen un comportamiento mas cercano a una parábola. No al ser disperso, la parábola no significa que entre los 25 y 30 años si o si van a valer una millonada, si no que sube el techo máximo que pueden alcanzar. La mayoria se mantiene en valores abajo de los 30 millones, pero un jugador muy bueno entre 25 y 30 años puede valer muchisimo más que uno de 17 con las mismas capacidades ya que el techo es diferente. Además, como el precio sube con los años y despues baja, las tendencias se cancelan y el coeficiente de correlación (que mide relaciones lineales) da muy bajo en el gráfico. O sea, el gráfico de correlación solo nos dice cuando variables están relacionadas linealmente
+
+**1.3)** *Para las variables categóricas, definir las variables dummy*
+
+Tenemos de variables categóricas preferred_foot (con las categorias Rigth y Left) y position (con las categorías Defender, Forward, Goalkeeper y Midfielder). Las variables dummy de una variable con N categorias siempre van a ser N-1. Preferred_foot va a tener 1 variable dummy y position va a tener 3. Tomo de 0 la que tiene más apariciones
+
+```{r jugadores_dummy}
+datos_dummy <- datos_jugadores %>% 
+  mutate( D_left = ifelse(preferred_foot == "Left", 1, 0),
+          D_forward    = ifelse(position == "Forward", 1, 0),
+          D_goalkeeper = ifelse(position == "Goalkeeper", 1, 0),
+          D_midfielder = ifelse(position == "Midfielder", 1, 0))
+```
+
+**1.4)** *qué variables parecen estar más asociadas con el valor de mercado de los jugadores? hay variables altamente correlacionadas entre si?*
+
+Esto ya lo vimos en el punto anterior, pero ahora que tengo las variables dummys de las categóricas, puedo agregarlas al gráfico de matriz de correlaciónes para ver que onda.
+
+```{r correlaciones_cat}
+jugadores_numericas2 <- datos_dummy %>% 
+  select(value_euro, age, height_cm, weight_kgs, overall_rating, potential,
+         international_reputation.1.5., skill_moves.1.5., weak_foot.1.5.,
+         shot_power, long_shots, short_passing, long_passing, dribbling, interceptions,
+         D_left, D_forward, D_goalkeeper, D_midfielder)
+
+matriz_corr2 <- cor(jugadores_numericas2, use = "complete.obs")
+
+corrplot(matriz_corr2, 
+         method = "color",
+         type = "full",
+         order = "hclust",
+         tl.col = "gray30",
+         tl.srt = 45,
+         tl.cex = 0.8,
+         addCoef.col = "black",
+         number.cex = 0.4)
+```
+Las variables que parecen estar más relacionadas con el valor de los jugadores se mantuvieron igual, siguen siendo reputación internacional, potencial y validación general, con una correlación mayor a 0.7. Las variables dummy agregadas no muestran correlaciones fuertes con value_euro. (Para pensar la correlación de la variable que no es dummy, ejemplo, si los dummies de posición son D_forward, D_goalkeeper, D_midfielder, la referencia es defender. Si D_forward tiene correlación positiva con value_euro, significa que los delanteros valen más que los defensores (la referencia). La comparación siempre es contra la categoría que no tiene dummy.)
+
+*Ahoora, utilizando las funciones implementadas previamente en clase, aplicar el procedimiento de selección forward tomando como variable respuesta value_euro.*
+
+```{r agregar_variable_clase}
+agregar_variable <- function(nueva_predictora, df0, df) {
+  df0[,nueva_predictora] <- df[,nueva_predictora]
+  return(df0)
+}
+```
+
+```{r evaluar_predictoras_clase}
+evaluar_predictora <- function(predictora, df0, df, variable_respuesta){
+  df_parcial <- agregar_variable(predictora, df0, df)
+  f <- as.formula(paste0(variable_respuesta, "~ ."))
+  modelo <- lm(f, data = df_parcial)
+  mse <- mean(modelo$residuals**2)
+  resultados <- list(df_nuevo = df_parcial, MSE = mse)
+  return(resultados)
+}
+```
+
+```{r encontrar_orden_clase}
+encontrar_orden_predictoras <- function(nombre_respuesta, df){
+  orden_predictoras <- c()
+  MSE <- c()
+  df_parcial <- df[, nombre_respuesta, drop = F]
+  
+  while (dim(df_parcial)[2] != dim(df)[2]){
+    
+    MSEt <- c()
+    columnas_evaluadas <- c()
+    
+    for(col in names(df)){
+      if (!(col %in% names(df_parcial))){
+        columnas_evaluadas <- c(columnas_evaluadas, col)
+        MSEt <- c(MSEt,
+          evaluar_predictora(col, df_parcial, df, nombre_respuesta)$MSE)
+      }
+    }
+    mejor_predictora <- columnas_evaluadas[which.min(MSEt)]
+    
+    MSE <- c(MSE, MSEt[which.min(MSEt)])
+    orden_predictoras <- c(orden_predictoras, mejor_predictora)
+    
+    df_parcial <- agregar_variable(mejor_predictora, df_parcial, df)
+  }
+  return(list(orden_predictoras = orden_predictoras, nMSE = MSE))
+}
+```
+
+```{r seleccion_forward_clase}
+seleccion_forward <- function(nombre_respuesta, df, folds){
+  orden <- encontrar_orden_predictoras(nombre_respuesta, df)$orden_predictoras
+  MSE <- c()
+  for (i in 1:length(orden)){
+    MSEv <- c()
+    for (k in 1:length(folds)){
+      f <- as.formula(paste0(nombre_respuesta," ~ ."))
+      m <- lm(f, data = df[-folds[[k]], c(orden[1:i], nombre_respuesta)])
+      predichos <- predict(m, df[folds[[k]], orden[1:i], drop = F])
+      MSEv <- c(MSEv, calculo_MSE(predichos, df[folds[[k]], nombre_respuesta]))
+    }
+    MSE <- c(MSE, mean(MSEv))
+  }
+  variables_seleccionadas <- c(orden[1:which.min(MSE)], nombre_respuesta)
+  return(list(MSE = MSE,
+         orden_predictoras = orden,
+         df = df[, variables_seleccionadas]))
+}
+```
+
+
+**2.1)**  *Determinar el orden en que las variables son incorporadas y calcule el error cuatrático medio de entrenamiento en función de la cantidad de variables incorporadas. Realice un gráfico. ¿En qué momento parece estabilizarse la mejora en el ajuste?*
+
+Para hacer esto necesito un data frame que tenga la variable value_euro, las predictoras (numericas y dummies), y sin NAs. Nuestros datos ya no tenian datos faltantes, y uso el df que arme para la ultima matriz de correlación, le cambio el nombre. Luego hago el código para determinar el orden en que se incorporan las variables
+
+```{r forward}
+datos_forward <- jugadores_numericas2
+```
+
+```{r variables_orden}
+res <- encontrar_orden_predictoras("value_euro", datos_forward)
+
+res$orden_predictoras #para ver solo el orden
+```
+Ahora para armar el gráfico de los errores cuadraticos medios armo un dataframe con los resultados
+
+```{r MSE_n_df}
+datos_MSEn <- data.frame(n_variables = 1:length(res$nMSE),
+                         MSE = res$nMSE)
+```
+
+```{r grafico_nMSE}
+ggplot(datos_MSEn, aes(x = n_variables, y = MSE)) +
+  geom_line(color = "purple") +
+  geom_point(color = "green") +
+  labs(
+    title = "Selección Forward - MSE de entrenamiento",
+    x = "Cantidad de variables incorporadas",
+    y = "MSE de entrenamiento"
+  ) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+Viendo el gráfico, la mejora del ajuste parece estabilizarse al incorporar 5-6 variables por que de ahi en adelante la mejora es minima y la curva se plancha.
+
+**2.2)** *Qué variables igresan en las primeras etapas del procedimiento? Resulta razonable?*
+
+```{r}
+head(res$orden_predictoras, 6)
+```
+Las 6 primeras predictoras que salieron son razonables. Overall_rating tiene sentido por ser la métrica general del jugador y tiene alta correlacion con value_euro. Age sabemos que influye bastante porque tienen una edad "ideal" para ser jugadores profesionales. International_reputation también tenía correlación alta con value_euro y tiene sentido que pagen mas por jugadores reconocidos mundialmente. D_forward dice que los delanteros valen mas que los defensores, que creo que tiene sentido también (ponele no se de football). Y long_shots y shot_power son habilidades que necesitan para jugar bien asi que debe ser importante también.
+Potential no ingresa entre las primeras variables a pesar de su alta correlación con value_euro, probablemente por su alta correlación con overall_rating. Una vez que esta variable está en el modelo, potential aporta poca información adicional.
+
+**3.1)** *Considerar los modelos obtenidos en cada una de las etapas del procedimiento forward*
+*Utilizar validación cruzada K = 5 folds para estimar el error cuadratico medio de prediccion asociado a cada modelo. Graficar el MSE promedio de validación cruzada en funcon de la cantidad de variables incluidas.*
+
+```{r}
+set.seed(3)
+folds <- createFolds(datos_forward$value_euro, k=5)
+#a create folds le paso value_euro para q no me mande todos los caros 
+#en un solo grupo o algo asi, distribuye los datos en base a esa columna
+#devuelve 5 grupos de fiñas completas (con todas las columnas)
+
+res_cv <- seleccion_forward("value_euro", datos_forward, folds)
+
+#armo el df
+datos_MSEn_cv <- data.frame(n_variables = 1:length(res_cv$MSE),
+                            MSE = res_cv$MSE)
+```
+
+```{r grafico_MSEn_vc}
+ggplot(datos_MSEn_cv, aes(x = n_variables, y = MSE)) +
+  geom_line(color = "blue") +
+  geom_point(color = "green") +
+  labs(
+    title = "Selección Forward - MSE de validación cruzada",
+    x = "Cantidad de variables incorporadas",
+    y = "MSE de validación cruzada (Log)"
+  ) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+**3.2)** *Seleccionar el tamaño del modelo que minimiza el MSE de validación cruzada e indicar cuáles son las cariables incluidas en el modelo seleccionado*
+
+El tamaño del modelo que minimiza el MSE de validación cruzada es de 9 variables, de ahí en adelante el modelo sobreajusta. Igualmente, la mejora entre 6 y 9 variables es minima, por lo que podría preferirse un modelo con 6 variables para no complejizarlo tanto y que sea mas facil de interpretar. En realidad todo el eje Y es de numeros muy chicos pero se ve horrible por la notación, pero tmb podría decirse que despues de 2 variables el modelo mejora minimamente, puede servir el de 2 variables tmb como el más simple de todos. Pero como pide modelo que minimiza MSE, elijo 9 variables.
+
+Las variables incluidas en el modelo son:
+
+```{r}
+# Las primeras 9 del orden
+res_cv$orden_predictoras[1:9]
+
+res_cv$MSE
+```
+**4.1)** *Comparar el modelo seleccionado mediante validación cruzada con el modelo que usa todas las variables disponibles. Cual usaría para predicciones futuras?*
+
+El modelo seleccionado mediante validación cruzada es el de 9 variables, se seleccionó por minimizar el MSE de vc, visto en el gráfico anterior. El modelo que usa todas las variables disponibles (18) parece tener un MSE mayor (mínimo). Pero igualmente usaría el de 9 variables para futuras predicciones por que el de 18 variables puede estar sobreajustando, y además es el doble de complejo. Cuando la diferencia de MSE es insignificante, no vale la pena agregar tantas variables extra a un modelo, mejor usar el mas simple posible.
+
+**4.2)** *¿Considera que las variables seleccionadas permiten explicar adecuadamente el valor de mercado de un jugador? Discuta*
+
+Las variables seleccionadas permiten explicar parcialmente el valor del mercado, mediante aspectos técnicos  y de reputación del jugador. Pero el valor también puede ser influenciado por datos que no tenemos como el club, contrato vigente, lesiones, entre otros, lo que limita la capacidad explciativa del modelo.
+
+

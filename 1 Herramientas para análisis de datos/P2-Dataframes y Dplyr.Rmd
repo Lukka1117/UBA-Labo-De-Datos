@@ -1,0 +1,245 @@
+---
+title: "Dataframes y Dplyr"
+subtitle: "Práctica 2 - Laboratorio de Datos"
+author: "Luciana Lorenzo"
+date: "`r Sys.Date()`"
+
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: false
+  fontsize: 10pt
+  geometry: margin=1.5cm
+  header-includes:
+  - \usepackage{setspace}
+  - \singlespacing
+  - \usepackage{titlesec}
+  - \titlespacing*{\section}{0pt}{2ex}{1ex}
+  - \titlespacing*{\subsection}{0pt}{1.5ex}{0.8ex}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE, comment = NA)
+```
+
+\newpage
+
+En esta práctica vamos a estar trabajando con una base de datos que contiene información sobre vuelos estadounidenses del año 2023.
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(nycflights13)
+library(dplyr)
+library(knitr)
+
+vuelos <- flights
+```
+
+## Exploración inicial
+
+```{r exploracion}
+str(vuelos)
+glimpse(vuelos)
+```
+
+## Ejercicio 1
+
+*¿Cuántas variables y cuantas observaciones tienen los datos?*
+
+Los datos tienen **19 variables** y **336.776 observaciones**.
+
+---
+
+## Ejercicio 2
+
+*Nos interesa agregar algunas variables en vuelos:*
+*Una columna llamada air_time_hours que contenga el tiempo de vuelo en horas*
+*Una columna llamada distance_km que contenga la distancia recorrida en kilómetros (tener en cuenta que la variable distance tiene la distancia recorrida en millas y que una milla equivale a 1.6 kilómetros).* 
+*Una columna llamada speed que contenga la velocidad del vuelo en kilómetros por hora.*
+
+Se agregan las columnas `air_time_hours`, `distance_km` y `speed` al dataframe.
+
+```{r nuevas_columnas}
+vuelos <- vuelos %>% 
+  mutate(air_time_hours = air_time / 60,
+         distance_km = distance * 1.6,
+         speed = distance_km / air_time_hours)
+```
+
+---
+
+## Ejercicio 3
+
+*La persona que nos envia la base de datos nos advierte de algunos datos perdidos. Armá una función que busque los NAs en cada una de las columnas y comparaá con los NAs que devuelve el summary(vuelos)*
+
+Se arma una función que cuenta los NAs en cada columna y se compara con el `summary()`.
+
+```{r conteo_na}
+summary(vuelos)
+```
+
+La función usando un loop `for`:
+
+```{r funcion_na_for}
+conteo_NA <- function(data) {
+  cantidad <- numeric(ncol(data))  # vector vacío de contador
+  names(cantidad) <- colnames(data)  # nombramos con los nombres de las columnas
+  
+  for(i in 1:ncol(data)) {
+    cantidad[i] <- sum(is.na(data[[i]]))
+    # data[[i]] extrae la columna actual
+  }
+  
+  return(cantidad)
+}
+```
+
+Una segunda forma usando `sapply`. `sapply` (Simplified Apply) aplica una función a cada elemento de una lista o vector y devuelve el resultado simplificado. Su sintaxis es `sapply(X, FUN, ...)`, donde `X` es el objeto sobre el que se trabaja (vector, lista o data frame) y `FUN` es la función a aplicar.
+
+```{r funcion_na_sapply}
+conteo_NA_2 <- function(data) {
+  cantidad <- sapply(data, function(x) sum(is.na(x)))
+  return(cantidad)
+}
+```
+
+Comparación de ambas funciones:
+
+```{r comparar_na}
+conteo_NA(vuelos)
+conteo_NA_2(vuelos)
+```
+
+Ambas funciones devuelven los mismos resultados, consistentes con lo reportado por `summary()`.
+
+---
+
+## Ejercicio 4
+
+*Seleccionar de vuelos sólo las variables que vamos a utilizar a partir de ahora: month, flight, origin, dest, air_time_hours, distance_km, speed*
+
+Se seleccionan únicamente las variables de interés. Una forma posible:
+
+```{r seleccion}
+vuelos2.0 <- vuelos %>% 
+  select(month, flight, origin, dest, air_time_hours, distance_km, speed)
+
+vuelos2.0
+```
+
+---
+
+## Ejercicio 5
+
+*La empresa que nos contrata está interesada en conocer cuáles son los vuelos con más de dos horas de demora en la llegada.*
+
+**a) y b)** *¿Qué variable usarías? ¿En qué unidad está esa variable? (segundos, minutos, horas, etc.)*
+
+La variable a utilizar es `arr_delay`, que mide el retraso en la llegada **en minutos**. Para filtrar vuelos con más de dos horas de demora, se filtra por valores mayores a 120.
+
+**c)** *Generá un nuevo dataframe que incluya solo los vuelos que cumplan con esta característica.*
+
+```{r vuelos_atrasados}
+vuelos_muy_atrasados <- vuelos %>% 
+  filter(arr_delay > 120)
+
+vuelos_muy_atrasados
+```
+
+**d)** *A partir de la información dada por algunos generentes, se sospecha que la cantidad de vuelos demorados varía entre invierno y verano. Crear un dataframe que incluya los vuelos con más de dos horas de demora para invierno (enero, febrero y marzo) y para verano (julio, agosto, septiembre.)*
+
+```{r demoras_estaciones}
+vuelos_WinSumm_atrasados <- vuelos_muy_atrasados %>% 
+  filter(month %in% c(1, 2, 3, 7, 8, 9))
+
+vuelos_WinSumm_atrasados
+```
+
+Para verificar si la sospecha de los gerentes tiene sustento, se puede calcular el porcentaje de vuelos demorados por estación:
+
+```{r analisis_estaciones}
+vuelos_estacion <- vuelos %>%
+  mutate(estacion = case_when(
+    month %in% c(1, 2, 3)   ~ "Invierno",
+    month %in% c(4, 5, 6)   ~ "Primavera",
+    month %in% c(7, 8, 9)   ~ "Verano",
+    month %in% c(10, 11, 12) ~ "Otoño"
+  ))
+
+analisis <- vuelos_estacion %>%
+  group_by(estacion) %>%
+  summarise(
+    total_vuelos      = n(),
+    vuelos_demorados  = sum(arr_delay > 120, na.rm = TRUE),
+    porcentaje_demora = (vuelos_demorados / total_vuelos) * 100
+  ) %>%
+  arrange(desc(porcentaje_demora))
+
+analisis
+```
+
+Contraintuitivamente, Primavera presenta el mayor porcentaje de demoras, seguida por Verano. Invierno no es la estación más problemática, por lo que la sospecha de los gerentes no se confirma con estos datos.
+
+---
+
+## Ejercicio 6
+
+*Nos interesa poder enviarle a nuestro cliente un resumen de como funcionan algunas variables en cada aeropuerto. Para eso, creá un nuevo data frame a partir de vuelos que contenga:*
+*a) Para cada destino, la cantidad de vuelos que llegaron a ese destino.*
+*b) Una variable llamada media_dist que contenga la distancia media recorrida (en kilómetros)*
+*c) Otra llamada media_delay que contenga el retraso medio en la llegada de esos vuelos*
+*d) Otra llamada media_speed que contenga la velocidad media.*
+
+Se crea un resumen por destino con cantidad de vuelos, distancia media, retraso medio y velocidad media. Se usa `na.rm = TRUE` para manejar los datos perdidos.
+
+```{r resumen_destinos}
+resumen <- vuelos %>% 
+  group_by(dest) %>% 
+  summarise(
+    vuelos_por_destino = n(),
+    media_dist  = mean(distance_km, na.rm = TRUE),
+    media_delay = mean(arr_delay,   na.rm = TRUE),
+    media_speed = mean(speed,       na.rm = TRUE)
+  )
+# summarise calcula las métricas antes de colapsar las filas por grupo
+
+resumen
+```
+
+---
+
+## Ejercicio 7
+
+*A partir del dataframe realizado en el punto anterior, ordenar los datos para establecer cuales son los 5 destinos con más y menos demoras*
+
+Se ordenan los destinos por retraso medio y se identifican los 5 con más y menos demoras. Se filtran primero los destinos con `NaN` en `media_delay` (destinos sin ningún valor válido de `arr_delay`).
+
+```{r top_demoras}
+resumen <- resumen %>% 
+  filter(!is.nan(media_delay)) %>% 
+  arrange(media_delay)
+
+menos_demoras <- head(resumen, 5)
+mas_demoras   <- tail(resumen, 5)
+
+kable(menos_demoras, caption = "5 destinos con menos demoras")
+kable(mas_demoras, caption = "5 destinos con más demoras")
+```
+
+## Ejercicio 8
+
+*¿Cómo podrías averiguar si algunos meses tienen más demoras que otros?*
+
+Para averiguar si algunos meses tienen más demoras que otros, se puede agrupar por mes y calcular el promedio de retraso:
+
+```{r demora_por_mes}
+demora_por_mes <- vuelos %>%
+  group_by(month) %>%
+  summarise(
+    vuelos_totales  = n(),
+    promedio_atraso = mean(arr_delay, na.rm = TRUE)
+  ) %>%
+  mutate(proporcion_atraso = (promedio_atraso / vuelos_totales) * 100) %>% 
+  arrange(desc(proporcion_atraso))
+
+kable(demora_por_mes, caption = "Demora por mes, de mayor a menor promedio de atraso")
+```

@@ -1,0 +1,320 @@
+---
+title: "Visualización"
+subtitle: "Práctica 5 - Laboratorio de Datos"
+author: "Luciana Lorenzo"
+date: "`r Sys.Date()`"
+
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: false
+  fontsize: 10pt
+  geometry: margin=1.5cm
+  header-includes:
+  - \usepackage{setspace}
+  - \singlespacing
+  - \usepackage{titlesec}
+  - \titlespacing*{\section}{0pt}{2ex}{1ex}
+  - \titlespacing*{\subsection}{0pt}{1.5ex}{0.8ex}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE, comment = NA)
+```
+
+\newpage
+
+*En esta práctica vamos a estar trabajando con datos del paquete gapminder, uno de los dataset que estuvimos usando en clase.*
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(gapminder)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(gridExtra)
+library(patchwork)
+library(knitr)
+
+datos <- gapminder
+
+datos2007 <- datos %>% filter(year == 2007)
+datos1952 <- datos %>% filter(year == 1952)
+```
+
+## Ejercicio 1
+
+*Realizá gráficos que muestren la relación entre la esperanza de vida y el PBI per cápita, discriminados por continente, para los años 1952 y 2007.*
+
+Para mostrar la relación entre dos variables cuantitativas (`lifeExp` y `gdpPercap`) se utiliza un scatterplot. Los puntos se colorean según continente.
+
+```{r graf_ej1, fig.width=12, fig.height=5}
+graf1 <- ggplot(datos2007, aes(x = gdpPercap, y = lifeExp, color = continent)) +
+  geom_point(alpha = 0.2) +
+  labs(title = "Relación entre esperanza de vida y PBI per cápita en 2007",
+       x = "PBI per cápita",
+       y = "Esperanza de vida",
+       color = "Continente") +
+  scale_y_continuous(limits = c(0, NA)) +
+  theme_bw() +
+  theme(
+    plot.title  = element_text(hjust = 0.5, size = 14),
+    axis.title  = element_text(size = 12),
+    axis.text   = element_text(size = 9),
+    legend.title = element_text(size = 12),
+    legend.text  = element_text(size = 9)
+  )
+
+graf2 <- ggplot(datos1952, aes(x = gdpPercap, y = lifeExp, color = continent)) +
+  geom_point(alpha = 0.2) +
+  labs(title = "Relación entre esperanza de vida y PBI per cápita en 1952",
+       x = "PBI per cápita",
+       y = "Esperanza de vida",
+       color = "Continente") +
+  scale_y_continuous(limits = c(0, NA)) +
+  theme_bw() +
+  theme(
+    plot.title  = element_text(hjust = 0.5, size = 14),
+    axis.title  = element_text(size = 12),
+    axis.text   = element_text(size = 9),
+    legend.title = element_text(size = 12),
+    legend.text  = element_text(size = 9)
+  )
+
+grid.arrange(graf2, graf1, ncol = 2)
+```
+
+En los dos años se observa una relación positiva entre el PBI per cápita y la esperanza de vida: los países con mayor ingreso tienden a tener poblaciones que viven más años. Esta relación no es lineal sino que tiene forma de curva, donde las mayores diferencias en esperanza de vida se concentran en los países con PBI per cápita más bajo (menos de 10.000 dólares aproximadamente). A partir de ese punto, los aumentos en el PBI se asocian con mejoras más moderadas en la esperanza de vida.
+
+Comparando 1952 y 2007, se nota que en 2007 los países están más dispersos hacia la derecha del eje x, lo que indica un crecimiento general del PBI, y que la esperanza de vida aumentó en casi todos los continentes. África se mantiene como el continente con menor esperanza de vida y menor PBI en ambos años.
+
+---
+
+## Ejercicio 2
+
+**a)** *Modificá el gráfico del Ejercicio 1 para que el tamaño del punto sea proporcional a la cantidad de población del país.*
+
+```{r graf_ej2a, fig.width=12, fig.height=5}
+graf3 <- ggplot(datos2007, aes(x = gdpPercap, y = lifeExp, 
+                               color = continent, size = pop / 1000000)) +
+  geom_point(alpha = 0.2) +
+  labs(title = "Relación entre esperanza de vida y PBI per cápita en 2007",
+       x = "PBI per cápita",
+       y = "Esperanza de vida",
+       color = "Continente",
+       size = "Población (millones)") +
+  scale_y_continuous(limits = c(0, NA)) +
+  theme_bw() +
+  theme(
+    plot.title  = element_text(hjust = 0.5, size = 14),
+    axis.title  = element_text(size = 12),
+    axis.text   = element_text(size = 9),
+    legend.title = element_text(size = 12),
+    legend.text  = element_text(size = 9)
+  )
+
+graf4 <- ggplot(datos1952, aes(x = gdpPercap, y = lifeExp, 
+                               color = continent, size = pop / 1000000)) +
+  geom_point(alpha = 0.2) +
+  labs(title = "Relación entre esperanza de vida y PBI per cápita en 1952",
+       x = "PBI per cápita",
+       y = "Esperanza de vida",
+       color = "Continente",
+       size = "Población (millones)") +
+  scale_y_continuous(limits = c(0, NA)) +
+  theme_bw() +
+  theme(
+    plot.title  = element_text(hjust = 0.5, size = 14),
+    axis.title  = element_text(size = 12),
+    axis.text   = element_text(size = 9),
+    legend.title = element_text(size = 12),
+    legend.text  = element_text(size = 9)
+  )
+
+grid.arrange(graf4, graf3, ncol = 2)
+```
+
+**b)** *Modificá el gráfico anterior para que la escala del eje x sea logarítmica. Pensá en un epígrafe adecuado.*
+
+La escala logarítmica estira los valores pequeños y comprime los grandes, por lo que los puntos quedan más distribuidos a lo largo del eje x y la relación se aprecia con mayor claridad. La distancia entre 1.000 y 10.000 es igual a la distancia entre 10.000 y 100.000. Tiene sentido usarla cuando los datos tienen mucha variación en magnitud, como el PBI per cápita, donde hay países con 500 dólares y otros con 50.000.
+
+```{r graf_ej2b, fig.width=12, fig.height=5}
+graf5 <- ggplot(datos2007, aes(x = gdpPercap, y = lifeExp, 
+                               color = continent, size = pop / 1000000)) +
+  geom_point(alpha = 0.2) +
+  labs(title = "Relación entre esperanza de vida y PBI per cápita en 2007",
+       x = "PBI per cápita (escala log)",
+       y = "Esperanza de vida",
+       size = "Población (millones)",
+       color = "Continente") +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_log10(labels = scales::label_number(big.mark = ".")) +
+  theme_bw() +
+  theme(
+    plot.title  = element_text(hjust = 0.5, size = 14),
+    axis.title  = element_text(size = 12),
+    axis.text   = element_text(size = 9),
+    legend.title = element_text(size = 12),
+    legend.text  = element_text(size = 9)
+  )
+
+graf6 <- ggplot(datos1952, aes(x = gdpPercap, y = lifeExp, 
+                               color = continent, size = pop / 1000000)) +
+  geom_point(alpha = 0.2) +
+  labs(title = "Relación entre esperanza de vida y PBI per cápita en 1952",
+       x = "PBI per cápita (escala log)",
+       y = "Esperanza de vida",
+       size = "Población (millones)",
+       color = "Continente") +
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_x_log10(labels = scales::label_number(big.mark = ".")) +
+  theme_bw() +
+  theme(
+    plot.title  = element_text(hjust = 0.5, size = 14),
+    axis.title  = element_text(size = 12),
+    axis.text   = element_text(size = 9),
+    legend.title = element_text(size = 12),
+    legend.text  = element_text(size = 9)
+  )
+
+# patchwork permite más control sobre el epígrafe compartido
+graf6 + graf5 +
+  plot_annotation(
+    caption = "El tamaño de cada punto es proporcional a la población del país. 
+               El eje x se encuentra en escala logarítmica.",
+    theme = theme(plot.caption = element_text(hjust = 0.5, size = 9, color = "gray50"))
+  )
+```
+
+Con la escala logarítmica la relación positiva se vuelve más clara y aproximadamente lineal. En 1952 los países estaban más agrupados en valores bajos de PBI, mientras que en 2007 la distribución es más amplia y la esperanza de vida en general más alta. Se confirma que África concentra los países con menor PBI y menor esperanza de vida en ambos períodos.
+
+---
+
+## Ejercicio 3
+
+**a)** *Graficá la esperanza de vida a través de los años en Argentina.*
+
+```{r graf_ej3a, fig.height=3, fig.width=6}
+datosARG <- datos %>% filter(country == "Argentina")
+
+ggplot(datosARG, aes(x = year, y = lifeExp)) +
+  geom_point(alpha = 0.6, color = "purple") +
+  geom_line(color = "cyan") +
+  labs(title = "Esperanza de vida en Argentina a través de los años",
+       x = "Año",
+       y = "Esperanza de vida") +
+  scale_y_continuous(limits = c(0, NA)) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14),
+    axis.title = element_text(size = 12),
+    axis.text  = element_text(size = 9)
+  )
+```
+
+La esperanza de vida en Argentina muestra una tendencia creciente y sostenida a lo largo de todo el período, pasando de aproximadamente 62 años en 1952 a más de 75 años en 2007.
+
+**b)** *Graficá la esperanza de vida a través de los años para los países de América usando `facet_wrap`.*
+
+`facet_wrap` divide el gráfico en paneles separados por grupo. Es útil cuando hay muchos grupos (América tiene 25 países), ya que usar `color = country` en un único panel haría el gráfico ilegible.
+
+```{r graf_ej3b, fig.width=14, fig.height=10}
+datosAMERICA <- datos %>% filter(continent == "Americas")
+
+ggplot(datosAMERICA, aes(x = year, y = lifeExp, color = country)) +
+  geom_point(alpha = 0.4) +
+  geom_line() +
+  labs(title = "Esperanza de vida en los países de América a través de los años",
+       x = "Año",
+       y = "Esperanza de vida") +
+  scale_y_continuous(limits = c(0, NA)) +
+  theme_bw() +
+  theme(
+    plot.title    = element_text(hjust = 0.5, size = 14),
+    axis.title    = element_text(size = 12),
+    axis.text     = element_text(size = 7),
+    legend.position = "none"  # la leyenda no es necesaria porque cada 
+                              # panel ya muestra el nombre del país
+  ) +
+  facet_wrap(~ country)
+```
+
+Todos los países de América muestran una tendencia creciente en la esperanza de vida. Haití presenta los valores más bajos y mayor variabilidad. Canadá y Estados Unidos se encuentran consistentemente entre los más altos, aunque con un ritmo de crecimiento más moderado que los países que partían de valores más bajos.
+
+---
+
+## Ejercicio 4
+
+**a)** *Graficá la esperanza de vida promedio de los países de cada continente junto con una medida de dispersión. ¿Cómo reportarías los resultados? ¿Harías alguna observación respecto a Oceanía?*
+
+Se presentan dos opciones: un boxplot combinado con violín y un gráfico de puntos con barras de error.
+
+**Boxplot con **
+
+El boxplot incluye varias medidas en un solo gráfico: la línea central es la mediana, la caja es el IQR (el 50% del medio de los datos), los bigotes muestran el rango de valores considerados no atípicos (hasta 1,5 veces el IQR), y los puntos fuera de los bigotes son outliers. El violin que lo rodea agrega información sobre la densidad de los datos: las zonas más anchas indican donde se concentra la mayor cantidad de observaciones, y las más angostas donde hay pocas.
+
+```{r graf_ej4_boxplot}
+ggplot(datos, aes(x = continent, y = lifeExp, fill = continent)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_violin(alpha = 0.2) +
+  labs(title = "Esperanza de vida por continente",
+       x = "Continente",
+       y = "Esperanza de vida",
+       fill = "Continente") +
+  scale_y_continuous(limits = c(0, NA)) +
+  theme_bw()
+```
+
+Europa y Oceanía presentan las medianas más altas y la menor variabilidad entre países, lo que indica esperanzas de vida similares dentro de cada continente. América y Asia muestran medianas intermedias pero mayor dispersión, siendo Asia el continente con mayor variabilidad interna (caja más grande). África tiene la mediana más baja y varios valores atípicos en el extremo superior.
+
+Respecto a Oceanía: el dataset solo incluye dos países (Australia y Nueva Zelanda), por lo que el boxplot no es representativo de la variabilidad real del continente. Con tan pocos datos, la caja y los bigotes no tienen el mismo significado estadístico que en los demás continentes.
+
+**Gráfico de puntos con barras de error (promedio ± desvío estándar)**
+
+```{r graf_ej4_errorbar}
+resumen <- datos %>% 
+  group_by(continent) %>% 
+  summarise(promedioEsperanzaVida = mean(lifeExp),
+            desvio = sd(lifeExp))
+
+kable(resumen,
+      col.names = c("Continente", "Promedio esperanza de vida", "Desvío estándar"),
+      digits = 2,
+      caption = "Esperanza de vida promedio y desvío estándar por continente")
+```
+
+```{r graf_ej4_errorbar_plot}
+ggplot(resumen, aes(x = continent, y = promedioEsperanzaVida, color = continent)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = promedioEsperanzaVida - desvio,
+                    ymax = promedioEsperanzaVida + desvio),
+                width = 0.3) +
+  labs(title = "Esperanza de vida promedio por continente",
+       x = "Continente",
+       y = "Esperanza de vida promedio",
+       color = "Continente") +
+  scale_y_continuous(limits = c(0, NA)) +
+  theme_bw()
+```
+
+En este gráfico el punto representa el promedio de esperanza de vida de cada continente y las barras de error representan ± 1 desvío estándar. Europa y Oceanía tienen los promedios más altos con barras cortas, indicando poca variabilidad. África tiene el promedio más bajo con una barra relativamente larga. Asia presenta la mayor dispersión de todos los continentes. Nuevamente, la barra de error de Oceanía debe interpretarse con cautela dado que el desvío estándar se calcula sobre solo dos países.
+
+---
+
+## Ejercicio 5
+
+*El siguiente gráfico corresponde a la esperanza de vida en diferentes regiones dentro de cinco países de fantasía.*
+
+```{r, out.width="70%"}
+include_graphics("paises_fantasia.png")
+```
+
+**a)** *Interpretá el gráfico y presentá las principales conclusiones.*
+
+Auroria tiene la mediana más alta (~80 años) y la menor dispersión entre países, con la mayoría de sus regiones concentradas en un rango estrecho. Lunaris muestra la mayor variabilidad, con una caja amplia y valores que van desde ~70 hasta ~90 años, lo que sugiere grandes desigualdades internas entre regiones. Drakonia y Fantasía tienen medianas similares (~75 años) aunque Fantasía presenta mayor dispersión. Zarlandia tiene una mediana intermedia con variabilidad moderada.
+
+**b)** *¿Qué representan los siguientes elementos del gráfico?*
+
+- **La línea recta horizontal dentro de cada caja:** la mediana de la esperanza de vida de las regiones de ese país; el valor tal que la mitad de las regiones están por encima y la mitad por debajo.
+- **Las cajas:** el rango intercuartílico (IQR), es decir, el rango que contiene al 50% del medio de los datos (entre el percentil 25 y el percentil 75).
+- **Las líneas verticales superiores e inferiores (bigotes):** el rango de valores considerados no atípicos, que se extienden hasta 1,5 veces el IQR desde cada extremo de la caja.
+- **Los puntos azules en Auroria:** valores atípicos (outliers), es decir, regiones cuya esperanza de vida cae más allá de los bigotes y se aleja considerablemente del resto de las regiones del país.

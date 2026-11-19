@@ -1,0 +1,426 @@
+---
+title: "Análisis de Agrupamiento"
+subtitle: "Práctica 10 - Laboratorio de Datos"
+author: "Luciana Lorenzo"
+date: "`r Sys.Date()`"
+
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: false
+  fontsize: 10pt
+  geometry: margin=1.5cm
+  header-includes:
+  - \usepackage{setspace}
+  - \singlespacing
+  - \usepackage{titlesec}
+  - \titlespacing*{\section}{0pt}{2ex}{1ex}
+  - \titlespacing*{\subsection}{0pt}{1.5ex}{0.8ex}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE, comment = NA)
+```
+
+\newpage
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(tidymodels)
+library(boot)
+library(knitr)
+library(caret)
+library(corrplot)
+library(GGally)
+library(cluster)
+library(factoextra)
+```
+
+El agrupamiento es una técnica de aprendizaje no supervisada, no hay una variable respuesta que predecir, sino que se quiere descubrir grupos naturales dentro de sus datos, basandose en qué tanto se parecen las observaciones entre sí. La forma más común de medir qué tan lejos estan dos observaciones entre si es la distancia euclidia, tratando cada variable como una dimensión. 
+
+## Ejercicio 1
+
+*Tenemos el dataset de Contaminación del agua en la cuenca Matanza-Riachuelo. Objetivo: Formar 3 grupos de estaciones de monitoreo ambiental en función de sus características de contaminación, para asignar tres equipos de trabajo que se encarguen de su gestión y planificación.*
+
+Primero cargamos el data set y lo exploramos
+
+```{r contaminacion_datos}
+contaminacion <- read.csv("DatosMetales_mod.csv")
+```
+
+```{r exploracion}
+names(contaminacion)
+str(contaminacion)
+summary(contaminacion)
+
+ggpairs(contaminacion[, -1])
+#sacamos la columna 1 que es el ID y no nos interesa 
+```
+El dataset tiene 30 observaciones y 10 variables, son todas numéricas y no hay datos faltantes. En caso de que haya, hay que eliminarlos si se quiere usar Kmeans.
+Viendo la matriz de relaciones, se puede ver que Pb tiene correlaciones positivas altas con Ni y Cr, lo que sugiere que esos metales aparecen juntos en los sitios más contaminados. Además Cr y O2.d tienen correlacion negativa alta, o sea, a más cromo, menos oxígeno disuelto en el agua. Pb tambien parece relacionarse con pH y O2.d más bajos.
+
+Después, estandarizamos los datos porque las variables del dataset estan medidas en unidades y escalar distintas. Como k-means usa la distancia euclidia para agrupar observaciones, las variables con mayor varianza o rango dominarian el calculo de la deistancia, por eso se estandarizan asi todas quedan con media 0 y desvio 1, todas contribuyen de manera equitativa a la formación de los clusters.
+
+```{r datos estandarizacion}
+contaminacion_z <- as.data.frame(scale(contaminacion[, -1]))
+```
+
+Podemos calcular la matriz de distancias
+
+```{r matriz_distancias}
+dist.eucl <- dist(contaminacion_z, method = "euclidean")
+
+round(as.matrix(dist.eucl)[1:5, 1:5], 2)
+
+fviz_dist(dist.eucl,
+          gradient = list(low = "hotpink", mid = "yellow", high = "cyan")) +
+   labs(fill = "Dist")
+#esta función hace un heatmap de las distancias. Mientras más rosa más cerca
+```
+Cada celda de la matriz muestra qué tan distintos son dos sitios entre si, considerando todas las variables a la vez. Cuanto más chico el número, más parecidos son en contaminación.
+
+### Implementación de K-means
+
+```{r k_means}
+#kmeans(x, centers, iter.max = 10, nstart =1)
+#x es el df, centers es k, iteraciones maximas y config iniciales
+#se recomienda cambiarle ese ultimo
+
+set.seed(3)
+kmeans_res <- kmeans(contaminacion_z, 3, nstart = 25)
+kmeans_res
+```
+La función kmeans() recibe el dataframe estandarizado, la cantidad de clusters que queremos y nstart, que indica cuantas veces el algoritmo va a probar con puntos de partida distintos antes de quedarse con el mejor resultado. 
+Lo que devuelve kmeans incluye varias cosas, entre ellas: 
+-El tamaño de cada cluster (cuantas observaciones quedaron en cada uno)
+-El centroide de cada variable por cluster (perfil promedio de ese grupo)
+-Un vector que indica a que cluster pertenece cada fila
+-La suma de cuadrados intra-cluster para cada grupo, que nos dice qué tan compactos son. Cuanto más chico el número, más parecidos entre sí son las obs de ese cluster
+-El porcentaje de la variabilidad explicada entre clusters respecto al total, queremos que sea alto
+
+Cuando armamos clusters, nos interesan dos tipos de variabilidad. La intra-cluster (within) que mide que tan dispersos están los puntos adentro de cada grupo, y queremos que sea chico porque significa que los elementos de un grupo son similares entre si (cluster compacto). Y tenemos la variabilidad inter-cluster (between) que mide que tan separados están los centros de los distintos clusters entre si. Aca queremos que el valor sea grande porq significa que los grupos son bien distintos entre si. La suma de ambas nos da la variabilidad total de los datos, y el porcentaje que muestra R con la funcion kmeans, indica que proporcion de toda la variabilidad se explica por la diferencia entre clusters. Cuanto más alto ese porcentaje, mejor separados y mas útiles son los grupos.
+
+Ahora, computamos el promedio de cada variable original separado por cluster. Usamos los datos sin estandarizar, para poder interpretar los grupos en las unidades reales de cada variable. Usamos aggregate(), que recibe el df, indica como se agrupan las filas antes de calcular el resumen y la funcio que se le aplica a cada variable. (van a ser los centroides por grupo pero de los valores originales)
+ 
+```{r promedio_por_cluster}
+contaminacion_promedios <- round(aggregate(contaminacion[, -1], by = list(cluster = kmeans_res$cluster), mean), 4)
+contaminacion_promedios
+#agarra las variables, agrupa segun cluster y calcula el promedio de cada variable segun el cluster
+```
+Luego tomamos el dataframe original y le agregamos la columna que indica a qué grupo pertenece cada fila, podemos tener todos los datos importantes juntos.
+
+```{r contaminacion_agrupada}
+contaminacion_agr <- cbind(contaminacion, cluster = kmeans_res$cluster)
+head(contaminacion_agr)
+```
+
+Para representar los clusters se puede usar la función fviz_cluster() de factoextra. Recibe principalmente el objeto obtenido con kmeans y el dataset estandarizado que se uso para kmeans.
+
+```{r visualizacion_clusters}
+set.seed(3)
+fviz_cluster(kmeans_res, data = contaminacion_z,
+             geom = "point",
+             ellipse.type = "convex",
+             star.plot = TRUE,
+             main = "Clusters de sitios de monitoreo") +
+  theme_bw()
+```
+El gráfico muestra los 3 clusters proyectados en dos dimensiones, junto con el porcentaje de explicacion (en total 55.2% de variabilidad). Como no se puede graficar en 9 dimensiones, se comprimen las 9 variables en 2, eligiendo las 2 combinaciones que más variabilidad capturan, por eso da mas alta que la de kmeans que toma todas las variables. Los grupos se ven bien separados entre si, por lo que kmeans pudo crear grupos distintos. El cluster verde parece más disperso que los otros mientras que el azul es el mas compacto.
+
+### Silhouette
+
+El coeficiente de silhouette mide que tan bien encaja cada observación dentro del cluster que le tocó, comparando que tan cerca está de los demás puntos de su propio grupo (cohesion) y que tan lejos esta del cluster vecino más cercano (separacion). Para c/ punto se calcula s = b - a / max(a,b), donde a es la distancia promedio de ese punto a los demás puntos de su mismo cluster, y b es la distancia promedio a los puntos del cluster mas cercano. Da un valor entre -1 y 1. 
+Si está cerca de 1, el punto está bien clasificado, mucho más cerca de su propio cluster que del vecino. Si está cerca de cero, está en el límite entre los dos. Y si está cerca de -1, el punto puede que esté mal clasificado al estar más cerca del cluster vecino que el suyo.
+
+```{r silhouette}
+contaminacion_sil <- cluster::silhouette(kmeans_res$cluster, dist(contaminacion_z))
+#le paso los clusters y la matriz de distancias euclideas, es la medida por defecto de dist
+head(contaminacion_sil)
+#me da un objeto matriz con una fila por cada obs y las cols cluster, neighbor y sil_width
+
+mean(contaminacion_sil[, 3])
+#pido el promedio de las sil_width
+
+summary(contaminacion_sil[,3])
+#pido el summary de las sil_width
+```
+Viendo los minimos y máximos, hay observaciones en el limite entre el su cluster y el vecino, pero ninguna mas cerca del vecino que del suyo. Sin embargo, ninguna esta super cerca de su cluster viendo que el maximo es 0.37. El promedio dio 0.229, asi que la clasificacion no es tan buena, pero safa. 
+
+Cuando promediamos este valor para todos los puntos, obtenemos un numero que resume que tan buena es la particion en general. Cuanto más alto el promedio, mejor definidos estan los clusters.
+
+### Caracterización de los grupos
+
+Queremos caracterizar los grupos conformados en relacion a:
+1) La contaminacion por metales, que cluster tiene valores mas altos/bajos de c/metal? destaca alguno?
+2) Las características fisicoquímicas, que cluster tiene mejor/peor calidad de agua?
+
+Hacemos un análisis usando la tabla de promedios que generamos con los datos originales.
+
+```{r caracterizacion}
+contaminacion_promedios
+```
+Vemos que para Pb el cluster 1 es el más alto y el 2 es el más bajo. Para As el más alto es el 3 y el más bajo es el 1 aunq cercano al 2. Para Cd el mas alto es el 1, cercano al 3, y el mas bajo el 2. Para Cr el más alto es el grupo 1 y el mas bajo el 2. Con el Ni pasa lo mismo. BDO tiene el mayor en el cluster 3  yel menor en el 2, bastante alejados. O2.d tiene mas alto el 2 y mas bajo el 3. El pH tiene mas alt oel 2 y mas bajo el 1, pero los 2 tienen valores similares. Y T tiene mas alto el grupo 1 y mas bajo el grupo 3.
+
+Entonces, el cluster 1 se caracteriza por mayor contaminación por metales pesados, ya que tiene los valores más altos en Pb, Cr y Ni, junto con un nivel intermedio de DBO. En características fisicoquimicas, tiene la temperatura más alta, menor pH aunque sin diferencias muy marcadas, y O2.d bajo, no muy distinto al del cluster 2, pero mas alto. Sugiere que estos sitios pueden estar siendo afectados por descargas de metales, posiblemente de origen industrial
+
+El cluster 2 se caracteriza por tener la menor contaminación por metales pesados y nivel más bajo de todos de DBO. A su vez, presenta el mayor nivel de O2.d, mostrando mejor calidad del agua, parece ser el grupo menos afectado por la contaminación.
+
+El cluster 3 se caracteriza por tener el mayor nivel de arsenico y mayor DBO entre los tres grupos. Además, es la que menor O2.d tiene, indicando fuerte contaminación orgánica, más que por metales.
+
+### Método del codo
+
+Usamos este método para elegir el número óptimo de clusters, con la funcion fviz_nbclust(), que toma los datos estandarizados, usando kmeans, e indicando Within Sum of Squares (suma de cuadrados intra-cluster). Le dice que para cada valor de k, calcule el WSS total y lo grafique. Cuando vemos el gráfico, buscamos el punto donde la curva venia bajando rapido y se aplana
+
+```{r contaminacion_codo}
+set.seed(3)
+fviz_nbclust(contaminacion_z, kmeans, method = "wss", k.max = 10) +
+  labs(title = "",
+       x = "Número de clusters (k)",
+       y = "Suma de cuadrados intra-cluster (WSS)") +
+  theme_bw()
+```
+No se ve un quiebre muy notorio, pero la curva baja considerablemente hasta k = 3 y despues ya va bajando menos por vcada valor de k. 
+
+## Ejercicio 2
+
+*Objetivo: Realizar un análisis de agrupamiento utilizando el algoritmo K-means con el fin de identificar grupos de vehículos con características similares, a partir de variables cuantitativas de la base de datos mtcars.*
+
+Cargamos y exploramos lso datos
+
+```{r mtcars_exploracion}
+datos_cars <- mtcars
+
+str(datos_cars)
+summary(datos_cars)
+
+ggpairs(datos_cars)
+```
+*Seleccionar dos o mas variables numéricas de la base mtcars que se consideren relevantes para agrupar los autos (por ejemplo: mpg, hp, wt, disp, etc.).*
+
+Tenemos un df con 32 observaciones y 11 variables. Para saber con qué variables quedarme, puedo mirar la diagonal (variabilidad) y elegir las que más variabilidad tienen. O elegir variables que representen cosas distintas del auto, como mpg(rendimiento), hp(potencia del motor) y wt(peso). En este caso nos quedamos con 3 variables que cubren ejes relevantes para alguien que quiere comprar o evaluar autos.
+
+```{r cars_seleccion}
+cars_sel <- datos_cars %>% 
+  select("mpg", "hp", "wt")
+
+str(cars_sel)
+summary(cars_sel)
+```
+*Decidir si estandarizar las variables seleccionadas (y hacerlo).*
+
+Viendo el summary de los datos seleccionados que voy a usar, las variables tienen medidas y escalas muy distintas entre si, así que voy a estandarizar las variables
+
+```{r cars_estandarizado}
+cars_sel_z <- as.data.frame(scale(cars_sel))
+#sclae devuelve una matriz
+
+summary(cars_sel_z)
+```
+*Aplicár el algoritmo K-means para conformar k = 3 grupos de vehículos.*
+
+```{r kmeans_cars}
+set.seed(3)
+
+kmeans_cars <- kmeans(cars_sel_z, 3, nstart = 25)
+kmeans_cars
+```
+Vemos centroides negativos. Cuando el centroide es negativo me dice que ese cluster tiene, en promedio, un valor más bajo que el promedio general en esa variable. Cuando el centroide esta cerca de 0, el cluster es bastante promedio en esa variable. Y cuando el centroide es positivo, el cluster tiene, en promedio, un valor más alto que el promedio general de todos losautos en esa variable.
+La calidad de agrupamiento dio 74.5%, me dice que la mayor parte de la variabilidad de lso datos se explica por la diferencia entre clusters, los tres grupos estan bien diferenciados entre si. Y mirando el wss por cluster, el 2 es el más compacto y el 3 es el más disperso.
+
+*Visualizá los resultados en un gráfico de dispersión, identificando los clústeres obtenidos.*
+
+```{r cars_clusters_grafico}
+set.seed(3)
+
+fviz_cluster(kmeans_cars, cars_sel_z,
+             geom = "point",
+             ellipse.type = "convex",
+             star.plot = TRUE,
+             main = "Clusters de autos") +
+  theme_bw()
+```
+*Analizá las características de cada grupo resultante e interpretá los posibles perfiles de vehículos que representa cada uno*
+
+Como con el ejercicio anterior, voy a calcular el promedio de cada variable original separado por cluster para poder analizar las variables de cada grupo
+
+```{r clusters_cars_promedio}
+round(aggregate(cars_sel, by = list(cluster = kmeans_cars$cluster), mean), 4)
+```
+Viendo los promedios de los grupos, se puede decir que:
+El cluster 1 parece tener autos de características intermedias. En las 3 variables resultó tener el promedio intermedio de los 3
+El cluster 2 se caracteriza por tener el mayor rednimiento, pero con la menor potencia y peso. Parece ser un grupo de autos mas económicos, chicos y livianos que gastan poco combustible.
+Y el cluster 3 se caracteriza por tener el menor rendimiento de los 3 pero la mayor potencia y peso, así que será el grupo de autos grandes y potentes, pero que a cambio rinde menos el combustible
+
+## Ejercicio 3
+
+*Clustering con tidyclust*
+
+*El libro https://datasciencebook.ca/clustering.html#k-means en el cappitulo 9 presenta un ejemplo para realizar un análisis de agrupamiento con la library(tidyclust) a partir de los datos penguins*
+*-Seguir el capítulo y resolver el ejemplo ofrecido (penguins) en un script propio*
+*-Volver a resolver el Ejercicio 1 con esta librería*
+
+Comenzamos siguiendo los pasos del libro, cargamos las librerias y seteamos la semilla para que la inicialización aleatoria de K-means sea reproducible.
+
+```{r librerias}
+library(tidyclust)
+library(palmerpenguins)
+set.seed(1)
+```
+Cargamos los datos. El libro usa una version recortada de 18 pinguinos con solo 2 variables, bill_length_mm y flipper_length_mm para graficar directamente en 2D. Además, penguins viene con datos faltantes, hay que sacarlos para poder calcular kmeans. El objetivo es ver si hay subtipos de pinguinos usando solo esas dos medidas.
+
+```{r pingu}
+set.seed(1)
+pingu <- penguins %>% 
+  select(bill_length_mm, flipper_length_mm) %>% 
+  drop_na() %>% 
+  slice_sample(n = 18)
+
+str(pingu)
+summary(pingu)
+```
+Luego ve los datos estandarizados, que usa un df estandarizado prearmado asi que aca lo vamos a tener que estandarizar.
+
+```{r pingu_estandarizado}
+pingu_z <- as.data.frame(scale(pingu))
+summary(pingu_z)
+```
+Grafica para buscar grupos a simple vista 
+
+```{r pingu_grafico}
+ggplot(pingu_z, aes(x = flipper_length_mm, y = bill_length_mm)) +
+  geom_point() +
+  xlab("Flipper Length (standardized)") +
+  ylab("Bill Length (standardized)") +
+  theme(text = element_text(size = 12)) +
+  theme_bw()
+```
+Mirando este gráfico, el libro identifica 3 grupos visuales. Pico y aleta chicos, pico grande y aleta chica, pico y aleta grandes.
+
+Acá vuelve a usar el df sin estandarizar, porque tidyclust se encarga de hacer la estandarizacion automaticamente como parte del flujo. Armamos la receta de procesamiento
+ 
+```{r pingu_receta}
+kmeans_recipe <- recipe(~ ., data = pingu) %>% 
+  step_scale(all_predictors()) %>% 
+  step_center(all_predictors())
+#dejo ~ . para decirle q use todas las variables
+#divide cada variable porsu desvio estandar (desvio 1)
+#a cada  var le resta su media (media en 0)
+
+kmeans_recipe
+```
+
+Luego especifica el modelo de k-means
+
+```{r kmeans_modelo}
+kmeans_spec <- k_means(num_clusters = 3) %>% 
+  set_engine("stats")
+#engine le dice que use la implementacion de kmeans de paquete stats
+kmeans_spec
+```
+Ahora combina todo en un workflow y ajusta
+
+```{r pingu_workflow}
+kmeans_fit <- workflow() %>% 
+  add_recipe(kmeans_recipe) %>% 
+  add_model(kmeans_spec) %>% 
+  fit(data = pingu)
+
+kmeans_fit
+```
+El resultado de kmeans_fit imprime basicamente lo mismo que kmeans_res del ejercicio 1. Tamaño de clusters, medias por cluster, vector de asignacion, WSS por cluster y la calidad de agrupamiento
+Ahora agregamos la columna de clusters a los datos originales
+
+```{r pingu_clusters}
+pingu_clustered <- kmeans_fit %>% 
+  augment(pingu) 
+#hace lo mismo q cbind, junta pingu sin estandarizar con la nueva col
+#.pred_cluster
+
+pingu_clustered
+```
+
+Luego grafica los clusters
+
+```{r clusters_grafico}
+ggplot(pingu_clustered, aes(x = flipper_length_mm, y = bill_length_mm, color = .pred_cluster)) +
+  geom_point(size = 2) +
+  labs(x = "Flipper Length", 
+       y = "Bill Length", 
+       color = "Cluster") +
+  theme_bw()
+```
+Vemos el WSSD total del modelo con k = 3. Glance te da una resumen de una sola fila con totss (total SS), tot.withinss (WSS total) y betweens.
+
+```{r glance}
+glance(kmeans_fit)
+```
+Ahora probamos varios valores de K para eventualmente buscar el codo
+
+```{r kmeans_codo_prep}
+pingu_clust_ks <- tibble(num_clusters = 1:9)
+pingu_clust_ks
+#crea una tabla con una col con los valores de K que queres probar
+```
+```{r modelo_varios_k}
+kmeans_spec_tune <- k_means(num_clusters = tune()) %>% 
+  set_engine("stats")
+#redefine la especificacion del modelo pero usando tune
+#en vez de un numero, le dice q el parametro va a variar
+
+kmeans_spec_tune
+```
+
+Luego corrre kmeans para cada k y junta resultados
+
+```{r}
+kmeans_results_k <- workflow() %>% 
+  add_recipe(kmeans_recipe) %>% 
+  add_model(kmeans_spec_tune) %>% 
+  tune_cluster(resamples = apparent(pingu), grid = pingu_clust_ks) %>% 
+  collect_metrics()
+#tune cluster en vez de fit, se usa cuando el modelo tiene parametros tuneables
+#resamples dice que use el df completo y grid le pasa la tabla de k
+#collect metrixs junta los res de las 9 corridas en una sola tabla
+#apparent simula un remuestreo sin dividir los datos, 
+#test y training son el df completo
+
+kmeans_results_k
+```
+
+Después se queda con el WSSD total
+
+```{r}
+kmeans_results_k <- kmeans_results_k %>% 
+  filter(.metric == "sse_within_total") %>% 
+  mutate(total_WSSD = mean) %>% 
+  select(num_clusters, total_WSSD)
+#la tabla de collect metrics trae varias, con filter te quedas
+#con las filas de SSE within total. Y con mutate y select renombres
+# y te quedas con las cols q importan
+
+kmeans_results_k
+```
+
+Graficar el elbow plot
+
+```{r}
+ggplot(kmeans_results_k, aes(x = num_clusters, y = total_WSSD)) +
+  geom_point() +
+  geom_line() +
+  labs(x = "K",
+       y = "Total within-cluster sum of squares") +
+  scale_x_continuous(breaks = 1:9) +
+  theme_bw()
+```
+ 
+
+
+
+
+
+
+
+
+

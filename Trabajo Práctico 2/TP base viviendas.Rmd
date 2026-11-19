@@ -1,0 +1,622 @@
+---
+title: ""
+subtitle: ""
+author: ""
+date: ""
+
+output:
+  pdf_document:
+
+fontsize: 11pt
+geometry: margin=2.5cm
+linestretch: 1.5
+
+header-includes:
+  - \usepackage{setspace}
+  - \usepackage{mathptmx}
+  - \usepackage{titlesec}
+  - \usepackage{sectsty}
+  - \usepackage{hyperref}
+  - \sectionfont{\fontsize{16}{18}\selectfont}
+  - \subsectionfont{\fontsize{14}{16}\selectfont}
+  - \usepackage{indentfirst}
+  - \setlength{\parindent}{0.5cm}
+  - \hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}
+  - \usepackage{float}
+  - \usepackage{caption}
+  - \captionsetup{justification=centering}
+---
+
+```{r setup, include=FALSE}
+
+# Instalación de paquetes necesarios.
+
+  # install.packages("dplyr")
+  # install.packages("tidyr")
+  # install.packages("tidyverse")
+  # install.packages("ggplot2")
+  # install.packages("readr")
+  # install.packages("knitr")
+  # install.packages("kableExtra")
+  # install.packages("ggcorrplot")
+  # install.packages("boot")
+
+# Configuración global de chunks.
+
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE
+)
+
+# Librerías utilizadas.
+
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(readr)
+library(knitr)
+library(kableExtra)
+library(ggcorrplot)
+library(boot)
+```
+
+\centerline{\LARGE \textbf{\underline{Precios de viviendas en CABA y Gran Buenos Aires (2020)}}}
+
+\vspace{0.5cm}
+
+\centerline{\LARGE \textbf{\underline{Trabajo Práctico N° 2}}}
+
+\vspace{0.7cm}
+
+\centerline{\large \textbf{\underline{Materia}:} Laboratorio de Datos}
+
+\vspace{0.5cm}
+
+\centerline{\large \textbf{\underline{Grupo}:} 4}
+
+\vspace{0.5cm}
+
+\centerline{\large \textbf{\underline{Integrantes}:}}
+
+\centerline{Barrios, Uma}
+\centerline{Lorenzo, Luciana}
+\centerline{Temelini, Mateo}
+
+\vfill
+
+\centerline{Fecha: `r Sys.Date()`}
+
+\newpage
+
+## Introducción
+
+El mercado inmobiliario constituye uno de los sectores de mayor relevancia económica en Argentina, donde la compra de propiedades suele representar una alternativa de inversión y resguardo de valor frente a los períodos de inestabilidad económica. En este contexto, contar con herramientas que permitan comprender los factores asociados al precio de los inmuebles y desarrollar modelos capaces de estimarlo resulta de interés tanto para compradores y vendedores como para el sector inmobiliario en general.
+
+La compañía inmobiliaria Properati (2020) [2] recopiló información proveniente de publicaciones de venta de propiedades ubicadas en la Ciudad Autónoma de Buenos Aires y el Gran Buenos Aires durante el año 2020. El conjunto de datos incluye variables relacionadas con las características edilicias de cada inmueble, tales como la cantidad de ambientes, dormitorios, baños y superficie, además de variables vinculadas con su ubicación geográfica y tipo de propiedad. Este enfoque se enmarca en la literatura de precios hedónicos, según la cual el valor de mercado de un bien como la vivienda puede explicarse a partir del conjunto de características que la componen (Lever, s.f.) [3].
+
+El objetivo de este informe es realizar un análisis exploratorio del conjunto de datos, identificar relaciones entre las variables y el precio de venta de las propiedades, construir y comparar modelos de regresión lineal con capacidad predictiva, y finalmente aplicar técnicas de análisis de agrupamiento para identificar segmentos de viviendas con características similares dentro de la región Capital Federal. Todo esto para poder predecir precios en base a características de las viviendas.
+
+```{r carga_datos}
+# Cargamos el dataframe y conviertimos las variables de texto a factor al leer el csv.
+precios_viviendas <- read.csv("datosTP2_2026.csv", stringsAsFactors = TRUE)
+```
+
+\newpage
+## Metodología
+
+Los datos utilizados en este informe fueron obtenidos de Properati a través de la plataforma Kaggle, donde se encontraban previamente procesados con el objetivo de eliminar variables consideradas poco relevantes para el análisis (Mendivil, A. 2022) [1]. Al cargar la base de datos en R, las variables de tipo `character` fueron transformadas a `factor` para su correcto tratamiento en los análisis posteriores.
+
+El conjunto de datos está compuesto por variables cuantitativas (rooms, bedrooms, bathrooms, surface_total, surface_covered y price, expresadas en cantidad de ambientes, metros cuadrados y dólares estadounidenses respectivamente) y variables categóricas (Pais, Region, barrio_localidad y property_type).
+
+Para el análisis descriptivo de las variables cuantitativas se excluyeron los datos faltantes, permitiendo calcular correctamente las medidas resumen. La variable `ID`, al tratarse de un identificador sin valor analítico, fue excluida de todos los análisis. Asimismo, no se incluyeron las frecuencias de la variable `barrio_localidad` debido a la elevada cantidad de categorías presentes, lo que dificulta su representación e interpretación. La variable `Pais` también fue descartada luego de la exploración inicial, ya que todos los registros correspondían a Argentina, por lo que no aportaba variabilidad a los análisis posteriores.
+
+La detección de posibles valores atípicos se realizó mediante boxplots. Los valores atípicos detectados en `price`, `surface_total` y `surface_covered` no fueron eliminados del análisis, ya que se consideró que representan observaciones válidas dentro de un mercado heterogéneo. En su lugar, se aplicaron transformaciones logarítmicas en los modelos donde fue pertinente, atenuando su influencia sin descartar información.
+
+Para explorar las relaciones entre variables cuantitativas se calculó una matriz de correlación de Pearson utilizando únicamente observaciones completas (complete.obs).  Para la interpretación de las correlaciones se utilizó el criterio de Cohen (1988) [6], quien estableció como valores de referencia r=0.1, r = 0.1 y r = 0.5 para clasificar el efecto como débil, moderado o fuerte respectivamente. Con esto, se considerarion débiles las correlaciones con ($|r| < 0.3$), moderadas con ($0.3 \leq |r| < 0.5$) o fuertes con ($|r| \geq 0.5$). Esta herramienta permitió identificar asociaciones lineales entre las variables analizadas y complementar la exploración descriptiva de los datos.
+
+Para el análisis de regresión lineal simple se exploró la relación entre distintas características de las viviendas y su precio mediante modelos de regresión lineal simple. A partir de la matriz de correlación, se seleccionaron las variables con correlación mayor a 0.5, y se filtraron las observaciones con datos faltantes. 
+
+Se ajustaron uno o más modelos de regresión para cada una de las variables seleccionadas y se calculó para cada uno de ellos su coeficiente de determinación, plasmándolos en una tabla comparativa. A partir de esto se analizó con más detalle la relación entre las variables `price` y `bathrooms` a través de un gráfico de dispersión junto a su recta de regresión. La variable `bathrooms` no fue seleccionada como variable principal por estar asociada al tamaño de la vivienda (y por lo tanto, correlacionada con `surface_covered`). También se descartó por tomar únicamente valores enteros, haciendo que su relación con el precio se manifieste como agrupamientos en el diagrama de dispersión en lugar de una tendencia lineal continua, lo que limita la interpretación de un ajuste lineal. 
+
+El mismo análisis se realizó para el modelo con las variables transformadas log(`price`) y log(`surface_covered`). La transformación logarítmica fue considerada ya que suele atenuar la influencia de valores extremos y mejorar la linealidad de la relación.
+
+Para el análisis de regresión lineal múltiple (RLM) se seleccionaron las variables `price`, `rooms`, `bedrooms`, `bathrooms`, `surface_total`, `surface_covered`, `property_type` y `Region`. Previamente se eliminaron los registros con datos faltantes, por lo que los modelos se ajustaron únicamente sobre observaciones completas. Debido a la marcada asimetría observada en la distribución del precio de las viviendas, se utilizó el logaritmo natural del precio `log(price)` como variable respuesta con el objetivo de mejorar el cumplimiento de los supuestos del modelo y reducir la influencia de valores extremos, en línea con la especificación semilogarítmica habitual en modelos de precios hedónicos aplicados internacionalmente (Instituto Nacional de Estadística, 2009) [4]. Las variables categóricas `property_type` y `Region` fueron incorporadas al modelo como factores, por lo que R generó automáticamente las variables indicadoras (dummy) necesarias para su representación.
+
+Se construyeron cuatro modelos de regresión lineal múltiple con distintos niveles de complejidad, incorporando progresivamente nuevas variables explicativas e incluyendo una interacción entre la superficie total y el tipo de propiedad en el modelo más complejo. El Modelo 1 incluyó únicamente variables de distribución de ambientes (`rooms`, `bedrooms`, `bathrooms`). El Modelo 2, las superficies de la propiedad (`surface_total`, `surface_covered`). El Modelo 3 incorporó todas las variables disponibles y el Modelo 4 agregó al Modelo 3 una interacción entre `surface_total` y `property_type`, con el objetivo de evaluar si el efecto de la superficie sobre el precio difiere según el tipo de propiedad. 
+
+La capacidad predictiva de cada modelo se evaluó mediante validación cruzada de diez particiones (10-fold Cross Validation), utilizando como criterio de comparación el Error Cuadrático Medio (MSE). Finalmente, se seleccionó el modelo con menor MSE, ya que este procedimiento permite comparar el desempeño predictivo de los modelos sobre diferentes particiones de los datos y disminuye el riesgo de sobreajuste, al evaluar su capacidad de generalización sobre observaciones no utilizadas en cada ajuste.
+
+Para la visualización de la relación entre `surface_total` y log(`price`) según tipo de propiedad se utilizó una muestra aleatoria de 3000 observaciones, con el único fin de facilitar la lectura del gráfico de dispersión; los modelos fueron ajustados sobre la totalidad de las observaciones disponibles.
+
+Para formar grupos de viviendas con características similares dentro de Capital Federal se aplicó el algoritmo K-means sobre las variables `rooms`, `bedrooms`, `bathrooms`, `surface_total` y `surface_covered`. Previamente se eliminaron los registros con datos faltantes y se estandarizaron las variables mediante transformación z-score, de modo que todas contribuyeran en igual medida al cálculo de las distancias euclidianas utilizadas por el algoritmo. 
+
+La cantidad de grupos se determinó mediante el método del codo (Anexo 2), complementado con el porcentaje de variabilidad explicada y la interpretación de los grupos obtenidos para distintos valores de k. Aunque la reducción más pronunciada de la suma de cuadrados intra-cluster se observó para k = 2, se optó por utilizar k = 3 debido a que permitió una caracterización más interpretable de los grupos identificados. También se evaluó con k = 4 pero el incremento en variabilida explicada respecto a k = 3 no justificó la mayor complejidad del modelo.
+
+El análisis de los datos y la construcción del informe se realizó en R Markdown. Se utilizaron las librerías del ecosistema `tidyverse` (`dplyr`, `tidyr`, `ggplot2` y `readr`) para la manipulación y visualización de datos, `ggcorrplot` para la matriz de correlación, `knitr` y `kableExtra` para la generación de tablas, y `boot` para la validación cruzada de los modelos de regresión. Para el análisis de agrupamiento se utilizó la función `kmeans` de R base. Se intentó complementar con `factoextra` para la determinación del número óptimo de clusters, pero por el tamaño del dataset se optó por una implementación manual del método del codo.
+
+\newpage
+## Resultados
+
+```{r func_resumen_estadistico}
+# Función auxiliar que calcula resúmenes estadísticos de una variable y el porcentaje de datos faltantes.
+resumen_numerico <- function(x) {
+  data.frame(
+      Media = mean(x, na.rm = TRUE),
+      Mediana = median(x, na.rm = TRUE),
+      Desvío = sd(x, na.rm = TRUE),
+      Mínimo = min(x, na.rm = TRUE),
+      Máximo = max(x, na.rm = TRUE),
+      NAs_Porcentaje = round(sum(is.na(x)) / length(x)*100, 1)
+  )
+}
+```
+
+```{r func_frecuencias}
+# Función auxiliar que calcula la frecuencia de una variable en un dataframe.
+tabla_frecuencias <- function(df, var, titulo) {
+  df %>%
+    count({{ var }}, .drop = FALSE) %>%
+    mutate(frecuencia_relativa = round(n / sum(n) * 100, 1)) %>%
+    mutate(Variable = titulo) %>%
+    rename(Categoria = 1) %>%
+    select(Variable, Categoria, n, frecuencia_relativa)
+}
+
+```
+
+### Descripción exploratoria de la base de datos
+
+En primer lugar, se presenta una exploración estadística de las variables de los datos a analizar.
+
+```{r exploración_estadística_cuantitativas}
+# se construye una tabla única con el resumen estadístico de cada variable cuantitativa
+
+tabla_cuantitativas <- rbind(
+  cbind(Variable = "Ambientes", resumen_numerico(precios_viviendas$rooms)),
+  cbind(Variable = "Habitaciones",  resumen_numerico(precios_viviendas$bedrooms)),
+  cbind(Variable = "Baños",  resumen_numerico(precios_viviendas$bathrooms)),
+  cbind(Variable = "Sup. Total",  resumen_numerico(precios_viviendas$surface_total)),
+  cbind(Variable = "Sup. Cubierta",  resumen_numerico(precios_viviendas$surface_covered)),
+  cbind(Variable = "Precio (USD)",  resumen_numerico(precios_viviendas$price))
+  )
+
+kable(
+  tabla_cuantitativas,
+  digits = 2,
+  caption = "Análisis estadístico de variables cuantitativas") %>% 
+  kable_styling(font_size = 9)
+
+```
+
+Luego, se analiza una matriz de correlación entre variables cuantitativas. 
+
+```{r matriz_correlacion, fig.height=3.5, fig.width=4, fig.align='center'}
+# se calcula la matriz de correlación de Pearson entre las variables cuantitativas y se grafica con ggcorrplot.
+
+matriz_corr <- precios_viviendas %>% 
+  select(price, surface_total, surface_covered, rooms, bedrooms, bathrooms) %>% 
+  cor(use = "complete.obs")
+# "complete.obs" excluye filas con NA en bathrooms para el cálculo de la correlación
+
+# se reemplaza "_" por salto de línea en los nombres con etiquetas largas
+colnames(matriz_corr) <- gsub("_", "\n", colnames(matriz_corr))
+rownames(matriz_corr) <- gsub("_", "\n", rownames(matriz_corr))
+
+ggcorrplot(matriz_corr,
+           method = "square",
+           type = "full",           # toda la matriz
+           lab = TRUE,              
+           lab_size = 3,            
+           tl.cex = 8,               
+           colors = c("darkorange", "white", "blue3")) +
+  labs(x = NULL, 
+       y = NULL,
+       caption = "Figura 1. Matriz de correlacion\n entre variables cuantitativas.") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 15, hjust = 1),
+        axis.text.y = element_text(angle = 0),
+        plot.caption = element_text(hjust = 0.5, color = "gray25"))
+
+```
+
+El dataset contiene `r nrow(precios_viviendas)` observaciones y `r ncol(precios_viviendas)` variables, siendo siete cuantitativas y cuatro categóricas. Se observa un 1.4% de datos faltantes en la variable `bathrooms`, pero el resto de variables cuantitativas (Tabla 1) y categóricas están completas (Tabla 3, Anexo 1). Se puede ver que el 66.1% de las propiedades pertenece a la región de Capital Federal, y 75.5% pertenece a departamentos (Tabla 3, Anexo 1). La variable `Pais` no presenta variabilidad. Las variables `price`, `surface_total` y `surface_covered` presentaron una mayor diferencia entre media y mediana (Tabla 1), lo que indica presencia de datos atípicos. El dataset incluye además la variable `barrio_localidad`, no analizada individualmente por su elevada cantidad de categorías
+
+La Figura 2 (Anexo 1), acompaña la asimetría entre media y mediana detectada en la Tabla 1, mostrando alta presencia de datos atípicos en `price`, `surface_total` y `surface_covered`, lo que refuerza la necesidad de transformaciones o estandarización para los análisis.
+
+En la Figura 1 se muestra una matriz de correlación, que evidencia la asociación lineal entre las variables cuantitativas. Se puede ver que la correlación más fuerte de price se da con `bathrooms` (0.64), seguida por `surface_covered` (0.57), `rooms` (0.52) y `bedrooms` (0.51). Con `surface_total` muestra una correlación moderada (0.3).
+
+### Modelos de regresión lineal simple (RLS)
+
+```{r datos_modelo_RLS}
+
+datos_modelos_rls <- precios_viviendas %>%
+  select(rooms, bedrooms, bathrooms, surface_total, surface_covered, price) %>%
+  na.omit()
+
+# entrenamos distintos modelos con variables correlacionadas
+
+modelo_rooms <- lm(price ~ rooms, data = datos_modelos_rls)
+modelo_bedrooms <- lm(price ~ bedrooms, data = datos_modelos_rls)
+modelo_bathrooms <- lm(price ~ bathrooms, data = datos_modelos_rls)
+modelo_bathrooms2 <- lm(log(price) ~ bathrooms, data = datos_modelos_rls)
+modelo_surcov <- lm(price ~ surface_covered, data = datos_modelos_rls)
+modelo_surcov2 <- lm(log(price) ~ log(surface_covered), data = datos_modelos_rls)
+```
+
+En términos de ajuste, `rooms` y `bedrooms` presentaron los menores coeficientes de determinación (Tabla 4, Anexo 2). La variable `bathrooms` presentó un coeficiente considerablemente mayor, consistente con su correlación con `price` (Figura 2), pero no fue seleccionada como variable principal por las razones expuestas en Metodología. El modelo log-log entre `price` y `surface_covered` superó a todos los anteriores en capacidad explicativa (Tabla 4, Anexo 2) y fue el seleccionado para el análisis detallado.
+
+```{r grafico_y_coeficientes_modelo_loglog, fig.height=3.5, fig.width=6, fig.align= 'center'}
+# se grafica la relación log-log entre superficie cubierta y precio.
+
+ggplot(data = datos_modelos_rls, aes(x = log(surface_covered), y = log(price))) +
+  geom_point(alpha = 0.2, color = "coral") +
+  geom_smooth(method = lm, se = FALSE, color = "purple", linewidth = 1.5) +
+  labs(title = " ",
+  x = "logaritmo de la superficie cubierta",
+  y = "logaritmo del precio",
+  caption = "Figura 3. Logaritmo del precio en función del logaritmo de la superficie cubierta,\ncon recta de regresión ajustada") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.caption = element_text(hjust = 0.5, color = "gray25"))
+
+# se extraen los coeficientes del modelo
+beta0 <- round(coef(modelo_surcov2)[1], 3)
+beta1 <- round(coef(modelo_surcov2)[2], 3)
+```
+
+En la Figura 3 se observa un patrón aproximadamente lineal y una menor dispersión alrededor de la recta de regresión (en comparación a la Figura 4, Anexo 2), en concordancia con el mayor coeficiente de determinación obtenido (Tabla 4, Anexo 2).
+
+La ecuación de la recta estimada por el modelo elegido es: 
+$$
+\log(\widehat{\text{price}})=`r beta0`+`r beta1`\log(\text{surface\_covered})
+$$
+La pendiente indica la elasticidad del precio respecto de la superficie cubierta, es decir, un incremento del 1% en la superficie se relaciona, en promedio, con un incremento aproximado del `r beta1`% en el precio. El intercepto no tiene interpretación práctica en este contexto, ya que correspondería a ya que corresponde a una superficie cubierta de 1 m². El modelo explicó un `r round(summary(modelo_surcov2)$r.squared, 2)*100`% de la variabilidad de log(price), un resultado adecuado para una regresión lineal simple sobre una base real de gran tamaño.
+
+### Modelos de regresión lineal múltiple (RLM)
+
+Se compararon cuatro modelos de regresión lineal múltiple construidos a partir de diferentes combinaciones de variables explicativas. Las diferencias entre ellos permiten evaluar el aporte de distintas características de las viviendas sobre la capacidad predictiva del modelo.
+
+```{r preparacion_datos, include = FALSE}
+# Se seleccionan las variables que se utilizarán para construir los modelos de regresión y se eliminan los registros con datos faltantes.
+datos_modelos <- precios_viviendas %>%
+  select(price, rooms, bedrooms, bathrooms, surface_total, surface_covered, property_type, Region) %>%
+  na.omit()
+```
+
+```{r ajuste_modelos, include = FALSE}
+# Se construyen cuatro modelos de regresión lineal múltiple para comparar su capacidad predictiva mediante validación cruzada.
+# Se utiliza glm() en lugar de lm() porque cv.glm() (paquete boot) requiere objetos de clase glm para la validación cruzada
+set.seed(3)
+
+# Modelo 1
+modelo1 <- glm(log(price) ~ rooms + bedrooms + bathrooms, data = datos_modelos)
+
+# Modelo 2
+modelo2 <- glm(log(price) ~ surface_total + surface_covered, data = datos_modelos)
+
+# Modelo 3
+modelo3 <- glm(log(price) ~ rooms + bedrooms + bathrooms + surface_total + surface_covered + property_type + Region, data = datos_modelos)
+
+# Modelo 4
+modelo4 <- glm(log(price) ~ rooms + bedrooms + bathrooms + surface_total * property_type + surface_covered + Region, data = datos_modelos)
+
+# Se calcula el MSE mediante validación cruzada de diez particiones.
+mse1 <- cv.glm(datos_modelos, modelo1, K = 10)$delta[1]
+mse2 <- cv.glm(datos_modelos, modelo2, K = 10)$delta[1]
+mse3 <- cv.glm(datos_modelos, modelo3, K = 10)$delta[1]
+mse4 <- cv.glm(datos_modelos, modelo4, K = 10)$delta[1]
+
+# Se comparan los modelos.
+comparacion_modelos <- data.frame(Modelo = c("Modelo 1", "Modelo 2", "Modelo 3", "Modelo 4"),
+                                  Descripcion = c("Ambientes", "Superficie total y cubierta", "Modelo completo", "Modelo completo + interacción"),
+                                  MSE = c(mse1, mse2, mse3, mse4)
+                                  )
+
+comparacion_modelos <- comparacion_modelos %>%
+  arrange(MSE)
+
+# Se identifica el modelo con menor MSE.
+modelos <- list(modelo1, modelo2, modelo3, modelo4)
+modelo_final <- modelos[[which.min(comparacion_modelos$MSE)]]
+```
+
+Se presentan los valores del Error Cuadrático Medio (MSE) obtenidos mediante validación cruzada para los cuatro modelos evaluados, permitiendo comparar su desempeño predictivo.
+
+```{r grafico_mse_modelos, fig.height=3, fig.width=6, fig.align= 'center'}
+# Se grafica el MSE obtenido por cada uno de los modelos comparados.
+
+ggplot(comparacion_modelos, aes(x = Modelo, y = MSE, group = 1)) +
+  geom_line(color = "hotpink") +
+  geom_point(size = 4, color = "blue") +
+  geom_text(aes(label = round(MSE, 3)), vjust = 0, hjust = -0.4, size = 3.5) +
+  labs(title = "Comparación del MSE entre los modelos de regresión",
+       x = "Modelo",
+       y = "Error Cuadrático Medio (MSE)",
+       caption = "Figura 5. Error Cuadrático Medio (MSE) obtenido mediante validación cruzada\npara los cuatro modelos de regresión lineal múltiple evaluados."
+       ) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.caption = element_text(hjust = 0.5, color = "gray25"))
+```
+
+El Modelo 4 presentó el menor MSE mediante validación cruzada (Figura 5), por lo que fue seleccionado para el análisis.
+
+Para complementar, se presenta la relación entre la superficie total y el logaritmo del precio para los distintos tipos de propiedad considerados en el modelo seleccionado.
+
+```{r grafico_interaccion, fig.height = 3.5, fig.width = 7, fig.align= 'center'}
+# Se representa la relación entre la superficie total y el logaritmo del precio según el tipo de propiedad.
+
+# Se toma una muestra aleatoria para mejorar la visualización del gráfico.
+datos_plot <- datos_modelos %>%
+  sample_n(3000)
+
+ggplot(datos_plot, aes(x = surface_total, y = log(price), color = property_type)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Relación entre la superficie total y el logaritmo del precio",
+       x = "Superficie total (m²)",
+       y = "Logaritmo del precio",
+       color = "Tipo de propiedad",
+       caption = "Figura 6. Relación entre la superficie total y el logaritmo del precio según el tipo de propiedad.\nLas rectas corresponden al ajuste lineal para cada categoría."
+       ) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.caption = element_text(hjust = 0.5, color = "gray25"))
+```
+
+En la Figura 6 se observa una asociación positiva entre `surface_total` y log(`price`) para todos los tipos de propiedad. La pendiente de cada recta representa el incremento esperado en el precio (en escala logarítmica) por cada metro cuadrado adicional de superficie total. En los tres casos la relación es positiva, pero la pendiente difiere notoriamente entre categorías, siendo más pronunciada en departamentos.
+
+### Agrupación de viviendas según sus características
+
+A continuación se analiza la segmentación de viviendas con características similares teniendo en cuenta sus tamaños, cantidad y distribución de ambientes.
+
+```{r viviendas_preparacion}
+precios_caracteristicas <- precios_viviendas %>% 
+  filter(Region == "Capital Federal") %>% # se trabaja solo con Capital Federal
+  select("rooms", "bedrooms", "bathrooms", "surface_total", "surface_covered") %>% 
+  drop_na() # K-means no admite NA, se eliminan los datos faltantes
+
+precios_viv_z <- scale(precios_caracteristicas)
+# se estandarizan las variables (media 0, desvío 1) para que ninguna domine el cálculo de distancias
+
+```
+
+```{r modelo_kmeans_vivienda}
+set.seed(2)
+
+viviendas_grupos <- kmeans(precios_viv_z, centers = 3, nstart = 25) 
+# Fijamos k = 3 según lo mencionado en metodología (método del codo + interpretabilidad).
+```
+
+```{r modelos_kmeans_comp}
+# se calcula el % de variabilidad explicada para k=2, k=3 y k = 4 para visualizar la diferencia
+# (betweenss/totss representa la proporción de variabilidad total explicada por los clusters)
+
+set.seed(2)
+modelo_k2 <- kmeans(precios_viv_z, centers = 2, nstart = 25)
+
+set.seed(2)
+modelo_k4 <- kmeans(precios_viv_z, centers = 4, nstart = 25)
+
+exp_k2 <- round(modelo_k2$betweenss / modelo_k2$totss * 100, 1)
+exp_k4 <- round(modelo_k4$betweenss / modelo_k4$totss * 100, 1)
+exp_k3 <- round(viviendas_grupos$betweenss / viviendas_grupos$totss * 100, 1)
+```
+
+```{r grupos_tabla}
+# Calculamos e imprimimos la tabla de coordenadas de centroides.
+viviendas_centroides <- as.data.frame(viviendas_grupos$centers) %>% 
+  mutate(cluster = row_number(),
+         n = viviendas_grupos$size,
+         withinss = viviendas_grupos$withinss)
+
+kable(viviendas_centroides, digits = 3,
+      caption = "Coordenadas del centroide de cada grupo (variables estandarizadas)")
+```
+
+```{r prefil_clusters_grafico, fig.height = 3.5, fig.width = 6, fig.align= 'center'}
+# se transforma la tabla de centroides a formato largo para graficar
+viviendas_centroides_largo <- viviendas_centroides %>%
+  select(cluster, rooms, bedrooms, bathrooms, surface_total, surface_covered) %>%
+  pivot_longer(-cluster, names_to = "variable", values_to = "valor_z")
+
+ggplot(viviendas_centroides_largo, aes(x = variable, y = valor_z, fill = as.factor(cluster))) +
+  geom_col(position = "dodge") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(title = "Perfil de los clusters (variables estandarizadas)",
+       x = NULL, 
+       y = "Valor estandarizado", 
+       fill = "Cluster",
+       caption = "Figura 7. Valores promedio estandarizados de cada variable por cluster.\nLa línea punteada indica el promedio general.") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.caption = element_text(hjust = 0.5, color = "gray25"),
+        axis.text.x = element_text(angle = 0, hjust = 0.5))
+
+```
+
+Se identificaron tres grupos de viviendas, con 4395, 33997 y 20100 observaciones (Tabla 2). Presentan sumas de cuadrados intra-cluster de 42629,21, 25759,13 y 38524,83 respectivamente (Tabla 2). En conjunto, el modelo explica la variabilidad de los datos en un `r exp_k3`%.
+A su vez, el modelo con k = 4 explica un `r exp_k4`% de la variabilidad (Figura 8, Anexo 2). Pero al observar la composición de los clusters obtenidos con k = 4 (Tabla 5, Anexo 3), el incremento se explica mayormente por la separación de un grupo menor (cluster 1, 2609 observaciones en Tabla 5, Anexo 3) con valores extremos en surface_total y surface_covered, coincidiendo con los datos atípicos vistos anteriormente, no aporta una segmentación con distinta naturaleza.
+En cuanto a las características de cada cluster (Figura 7), el cluster 2, además de ser el más numeroso, agrupa viviendas con valores por debajo del promedio en superficie y cantidad de ambientes, formando un grupo de propiedades chicas. El cluster 1 se caracteriza por propiedades muy por encima del promedio, pero es el de menor cantidad de observaciones. Y el cluster 3 es intermedio, con valores levemente por encima del promedio en todas las variables.
+
+\newpage
+## Discusión
+
+En conclusión, el análisis exploratorio mostró una fuerte asimetría en las variables de precio y superficie, así como una concentración de propiedades en la región de Capital Federal y de tipo departamento. Indicando que los resultados obtenidos describen principalmente ese segmento del mercado, y podrían no representar adecuadamente a otras regiones o tipos de propiedad menos frecuentes.
+
+En cuanto a los modelos de regresión, la superioridad del modelo log-log frente a las especificaciones lineales simples indica que la relación entre precio y superficie responde mejor a una interpretación en términos de variación porcentual.
+
+Esta misma lógica se profundiza en el modelo múltiple. La mejora obtenida al incorporar la interacción entre superficie y tipo de propiedad sugiere que dicho efecto tampoco es uniforme entre categorías, siendo más pronunciado en departamentos que en casas, posiblemente asociado a su mayor densidad constructiva.
+
+Mediante la segmentación obtenida por K-means, se pudo identificar tres perfiles de viviendas dentro de Capital Federal. Los resultados sugieren que en el mercado general de departamentos en la región predominan las propiedades pequeñas, mientras que las propiedades grandes son menos frecuentes.
+
+Entre las limitaciones del trabajo, se encuentra el uso exclusivo de las variables disponibles en la base de datos, por lo que otros factores que podrían influir sobre el precio de las viviendas (antigüedad, estado de conservación, características del entorno, etc), no fueron considerados. Además, se redujo la muestra al eliminar datos, y los modelos fueron ajustados utilizando información correspondiente a un único período temporal, lo que  puede afectar su capacidad predictiva ante cambios en el mercado. Esto último toma relevancia ya que 2020 fue un año poco convencional para el mercado inmobiliario argentino, con caídas en los precios de venta, tanto en CABA como en el Gran Buenos Aires respecto del año anterior (IDEAS Mercado Libre Argentina, 2021) [5].
+
+Como líneas de trabajo futuras, sería de interés incorporar nuevas variables explicativas, evaluar métodos de imputación de datos faltantes y comparar la regresión lineal múltiple con otros enfoques predictivos, como modelos de árboles de decisión u otros métodos de aprendizaje supervisado.
+
+\newpage
+## Referencias
+
+\noindent 1. Mendivil, A. (2022). **Buenos Aires Real State on sale** [Conjunto de datos]. Kaggle. https://www.kaggle.com/datasets/alejandromendivil/bsas-realstate-on-sale
+
+\noindent 2. Properati. (2020). **Properati Data** [Conjunto de datos]. https://properati.com.ar/data/
+
+\noindent 3. Lever, G. (s.f.). **El modelo de precios hedónicos**. https://www.ucipfg.com/Repositorio/MAES/PED/Semana4/PreciosHedonicos.pdf
+
+\noindent 4. Instituto Nacional de Estadística. (2009). **Índice de Precios de Vivienda. Metodología**. https://www.ine.es/ss/Satellite?blobcol=urldata&blobheader=application%2Fpdf&blobheadername1=Content-Disposition&blobheadervalue1=attachment%3B+filename%3DArticulo_1.pdf&blobkey=urldata&blobtable=MungoBlobs&blobwhere=592%2F615%2FArticulo+1.pdf&ssbinary=true
+
+\noindent 5. IDEAS Mercado Libre Argentina. (2021, 7 de enero). **Qué pasó en el mercado inmobiliario en el 2020 y qué esperar para el 2021**. https://ideas.mercadolibre.com/ar/inmuebles/mercado-inmobiliario-2020-que-esperar-para-el-2021/
+
+\noindent 6. Cohen, J. (1988). **Statistical power analysis for the behavioral sciences (2.ª ed.). Lawrence Erlbaum Associates**. http://www.utstat.toronto.edu/~brunner/oldclass/378f16/readings/CohenPower.pdf
+
+\newpage
+## Anexos
+
+### Anexo 1
+
+La siguiente tabla presenta los valores de frecuencias absolutas y relativas de las variables categóricas de la base de precios de viviendas.
+
+```{r exploración_estadística_categóricas}
+tabla_categoricas <- rbind(
+  tabla_frecuencias(precios_viviendas, Pais, "Pais"),
+  tabla_frecuencias(precios_viviendas, Region, "Region"),
+  tabla_frecuencias(precios_viviendas, property_type, "Tipo de Propiedad"))
+
+kable(
+  tabla_categoricas,
+  digits = 2,
+  caption = "Análisis de frecuencias de variables categóricas. Los valores faltantes en variables categóricas\nse incluyen como categoría 'NA' cuando corresponde,\nsu ausencia indica que no se registraron datos faltantes en esa variable.")
+```
+
+El siguiente gráfico presenta los boxplots de distribución de las variables price, surface_total y surface_covered.
+
+```{r exploracion_boxplots, fig.height=3, fig.width=6, fig.align= 'center'}
+
+precios_viv_largo <- precios_viviendas %>% 
+  select(price, surface_total, surface_covered) %>% 
+  pivot_longer(everything(), names_to = "Variable", values_to = "Valor")
+# Pasamos a formato largo para poder graficar las tres variables juntas con 'facet_wrap'.
+
+ggplot(precios_viv_largo, aes(x = Variable, y = Valor)) +
+  geom_boxplot(fill = "pink", outlier.color = "gray30", outlier.alpha = 0.3) +
+  facet_wrap(~Variable, scales = "free") +
+  scale_y_log10() +
+  labs(title = "Boxplot de variables cuantitativas",
+       y = NULL,
+       x = NULL,
+       caption = "Figura 2. Se utilizó escala logarítmica únicamente con fines de visualización") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.caption = element_text(hjust = 0.5, color = "gray25"),
+        axis.text.x = element_blank())
+
+# la escala 'log' la utilizamos únicamente para mejorar la visualización, sin transformar los datos originales.
+```
+
+\newpage
+### Anexo 2
+
+La próxima tabla compara los distintos modelos de regresión lineal ajustados junto con sus coeficientes determinación.
+
+```{r tabla_modelos}
+
+modelos <- list(
+  modelo_rooms, modelo_bedrooms, modelo_bathrooms, 
+  modelo_bathrooms2, modelo_surcov, modelo_surcov2 )
+
+# Se arma una tabla comparativa de los modelos de RLS ajustados, extrayendo la fórmula de cada modelo automáticamente 
+# para evitar inconsistencias entre el nombre y la especificación real.
+
+tabla_modelos <- data.frame(
+  Modelo = sapply(modelos, function(x) deparse(formula(x))),
+  R2 = sapply(modelos, function(x) summary(x)$r.squared))
+
+kable(
+  tabla_modelos,
+  digits = 3,
+  row.names = FALSE,
+  caption = "Comparación de los modelos de regresión lineal simple en función de sus coeficientes de determinación.")
+```
+
+El siguiente gráfico complementa la Tabla 4, mostrando la relación entre `price` y `bathrooms` mencionada en Resultados.
+
+```{r dispersion_precio_baños, fig.height=3.5, fig.width=6, fig.align= 'center'}
+# Se grafica price vs bathrooms para ilustrar los agrupamientos verticales propios de una variable discreta
+
+ggplot(data = datos_modelos_rls,aes(x = bathrooms, y = price)) +
+  geom_point(alpha = 0.2, color = "cyan3") +
+  geom_smooth(method = lm, se = FALSE, color = "red", linewidth = 1.5) +
+  labs(title = " ",
+  x = "cantidad de baños",
+  y = "precio",
+  caption = "Figura 4. Precio de propiedad en función de la cantidad de baños,\ncon recta de regresión ajustada") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.caption = element_text(hjust = 0.5, color = "gray25"))
+
+```
+
+\newpage
+### Anexo 3
+
+El siguiente gráfico corresponde al método del codo para visualizar qué valor de k es más óptimo para el modelo de K-means
+
+```{r kmeans_viviendas}
+
+# fija la semilla para que los resultados de kmeans sean reproducibles
+set.seed(2)
+
+# queriamos usar fviz_nbclust para el método del codo pero se cuelga, es muy grande el df
+# en su lugar, armamos un ciclo que ejecute K-means para valores de k del 1 al 10
+
+wss <- numeric(10)
+# en este vector se guardan los valores de WSS de cada modelo
+
+for (k in 1:10) {
+  modelo_kmean <- kmeans(precios_viv_z, centers = k, nstart = 25)
+  wss[k] <- modelo_kmean$tot.withinss
+}
+
+```
+
+```{r grafico_codo, fig.height = 4, fig.width = 6, fig.align= 'center'}
+precios_codo <- data.frame(clusters_k = 1:10, wss = wss)
+
+# gráfico del codo con el WSS de k = 2, 3 y 4 visibles
+# (las etiquetas de % de variabilidad explicada se calcularon en el chunk modelos_kmeans_comp)
+
+ggplot(precios_codo, aes(x = clusters_k, y = wss)) +
+  geom_line(color = "coral", size = 1.3) +
+  geom_point(color = "blue", size = 2) +
+  annotate("text", x = 2, y = wss[2], 
+           label = paste0(exp_k2, "%"), vjust = -1.2, size = 3) +
+  annotate("text", x = 3, y = wss[3], 
+           label = paste0(exp_k3, "%"), vjust = -1.2, size = 3) +
+  annotate("text", x = 4, y = wss[4], 
+           label = paste0(exp_k4, "%"), vjust = -1.2, size = 3) +
+  scale_x_continuous(breaks = 1:10) +
+  labs(title = "Método del codo para clusters de viviendas en CABA",
+       x = "Número de clusters (k)",
+       y = "WSS (Suma de Cuadrados Intracluster)",
+       caption = "Figura 8. WSS según cantidad de grupos. Las etiquetas indican el % de\n
+       variabilidad explicada para k = 2, k = 3 y k = 4.") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.caption = element_text(hjust = 0.5, color = "gray25"))
+```
+
+La siguiente tabla muestra los grupos conformados por kmeans con k = 4
+
+```{r tabla_centroides_k4}
+# Se presenta la composición de los clusters obtenidos con k=4, como respaldo
+# de la decisión de trabajar con k=3 (ver Resultados).
+viviendas_centroides_k4 <- as.data.frame(modelo_k4$centers) %>% 
+  mutate(cluster = row_number(),
+         n = modelo_k4$size,
+         withinss = modelo_k4$withinss)
+
+kable(viviendas_centroides_k4, digits = 3,
+      caption = "Coordenadas del centroide de cada grupo con k=4 (variables estandarizadas)")
+```

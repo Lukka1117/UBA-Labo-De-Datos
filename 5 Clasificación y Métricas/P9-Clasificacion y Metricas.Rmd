@@ -1,0 +1,799 @@
+---
+title: "Clasificación, KNN y Métricas"
+subtitle: "Práctica 9 - Laboratorio de Datos"
+author: "Luciana Lorenzo"
+date: "`r Sys.Date()`"
+
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: false
+  fontsize: 10pt
+  geometry: margin=1.5cm
+  header-includes:
+  - \usepackage{setspace}
+  - \singlespacing
+  - \usepackage{titlesec}
+  - \titlespacing*{\section}{0pt}{2ex}{1ex}
+  - \titlespacing*{\subsection}{0pt}{1.5ex}{0.8ex}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE, comment = NA)
+```
+
+\newpage
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(tidyverse)
+library(tidymodels)
+tidymodels_prefer()
+library(boot)
+library(knitr)
+library(corrplot)
+library(rpart)
+library(rpart.plot)
+```
+
+## Ejercicio 1
+
+*Este ejercicio está basado en un caso de estudio presentado en el libro Data Science A First Introduction de Tiffany Timbers, Trevor Campbell y Melissa Lee (capítulo 5), disponible en https://datasciencebook.ca/. Sobre el dataset: Wolberg, W., Mangasarian, O., Street, N., y Street, W. (1993). Breast Cancer Wisconsin (Diagnostic) [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5DW2B.*
+
+Cargamos y exploramos el dataset y convertimos las variables categóricas a factor
+
+```{r datos_cancer} 
+#xd
+datos_cancer <- read.csv("datos_unscaled.csv", stringsAsFactors = TRUE)
+
+str(datos_cancer)
+summary(datos_cancer)
+```
+
+El dataframe tiene 569 observaciones y 12 variables, una de ellas categórica (Class), el resto numéricas. A continuación un gráfico de Concavity vs Smoothness discriminado por Class
+
+```{r grafico_cancer}
+ggplot(datos_cancer, aes(x = Concavity, y = Smoothness, color = Class)) +
+  geom_point(alpha = 0.2) +
+  labs(title = "Concavity vs Smoothness discriminado por Class",
+       x = "Concavidad",
+       y = "Suavidad") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+Ahora hacemos la partición del dataframe. Fijamos la semilla y lo dividimos en training y testing sets
+
+```{r particion}
+set.seed(1)
+
+datos_split <- initial_split(datos_cancer, prop = 0.75, strata = Class)
+
+datos_train <- training(datos_split)
+datos_test <- testing(datos_split)
+
+#verificamos las proporciones
+proportionsTrain <- datos_train %>% 
+  group_by(Class) %>% 
+  summarise(n = n()) %>% 
+  mutate(percent = 100*n/nrow(datos_train))
+
+kable(proportionsTrain,
+      caption = "Proporcion de particiones del dataframe")
+```
+
+Preprocesamos los datos con una receta del paquete recetas. Es una descripción de los apsos que deben aplicarse a un conjunto de datos con el fin de prepararlo para el análisis de datos.
+La receta comienza especificando que para los datos_train, la clase es la respuesta y Smoothness y Concavity se usan como predictoras. Como KNN es sensible a la escala de las predictoras, las estandarizamos (escalar y centrar)
+
+```{r estandarización}
+datos_receta <- recipe(Class ~ Smoothness + Concavity, datos_train) %>% 
+  step_scale(all_predictors()) %>% 
+  step_center(all_predictors())
+```
+
+Continuamos con el entrenamiento del clasificador.
+Una vez dividio el conjunto de datos original en conjuntos de entrenamiento y prueba, crear nuestro clasificador KNN solo con el conjunto de entrenamiento. Luego elegir un número de vecinos más cercanos (por ahora K = 3 de manera arbitraria). Recordar q Concavity y Smoothness son las predictoras
+
+```{r knn_entrenamiento}
+knn_spec <- nearest_neighbor(weight_func = "rectangular", neighbors = 3) %>% 
+  set_engine("kknn") %>% 
+  set_mode("classification")
+#este bloquie solo define como va a funcionar, no entrena nada.
+#rectangular significa q todos los vecinos pesan igual sin importar q tan
+#lejos esten. El modo clasificacion le dice q el objetivo es predecir
+#una categoria. regression seria predecir un numero continuo
+```
+
+```{r knn_workflow}
+knn_fit <- workflow() %>%       #crea un pipeline vacio
+  add_recipe(datos_receta) %>%  #agrega preprocesamiento
+  add_model(knn_spec) %>%       #agrega el modelo
+  fit(data = datos_train)       #ajusta el modelo con los datos
+
+knn_fit
+```
+Para predicciones, utilizamos el clasificador para predecir las etiquetas de la clase del conjunto de datos de testeo.
+
+```{r predicciones}
+datos_test_predicciones <- predict(knn_fit, datos_test) %>% 
+  bind_cols(datos_test %>% 
+              select(ID, Class, Smoothness, Concavity))
+#predict devuelve una tabla con una sola col llamada pred_class
+#contiene la clase predica para cada fila del test set
+#bind_cols une pred_class con las columnas restantes de datos_test
+
+#la variable class contiene los diagnósticos verdaderos, mientras q 
+#.pred_class tiene los predichos 
+head(datos_test_predicciones, n = 3) %>% kable()
+```
+
+Calculamos desempeño con métricas vistas en clase
+
+```{r desempeño}
+datos_test_predicciones %>% 
+  metrics(truth = Class, estimate = .pred_class) %>% 
+  filter(.metric == "accuracy")
+#metrics calcula carias metricas de una vez
+#a truth le decis cual es la columna con las clases reales
+#a estimate cual es la columna con las predichas
+#filter filtra solo el accuracy porq metrics devuelve varias
+#el resultado 0.860 significa q el modelo clasifico bien el 86% 
+#de los datos_test
+
+matriz_confusion <- datos_test_predicciones %>% 
+  conf_mat(truth = Class, estimate = .pred_class)
+matriz_confusion
+
+#la funcion conf_mat cruza las clases reales contra las predichas
+```
+A partir de esta matriz, se pueden calcular varias métricas vistas en clase. Con TP(true positive), TN(true negative), FP(false positive) y FN(false negative). Los positivos van a ser los que dieron malignant porq es lo que queremos predecir. True/False dice si la predicción fue correcta o no, y Positive/negative dice qué predijo el modelo.
+
+Entonces tenemos TP = 39, FP = 6, TN = 84, FN = 14. 
+Se puede calcular accuracy que es la proporcion de aciertos totales
+
+```{r accuracy}
+datos_test_predicciones %>% 
+  accuracy(truth = Class, estimate = .pred_class)
+#(39 + 84) / (39 + 6 + 14 + 84) = 0.860
+#(TP+TN)/(TP+FP+TN+FN)
+```
+
+Se puede calcular precisión. De los que predije como Malignant, cuantos realmente lo eran?
+
+```{r precision}
+datos_test_predicciones %>%
+  precision(truth = Class, estimate = .pred_class, event_level = "second")
+#39 / (39 + 6) = 0.867
+#TP / (TP + FP)
+```
+
+Y se puede calcular recall. De los que realmente eran Malignant, cuántos detecté?
+
+```{r recall}
+datos_test_predicciones %>%
+  recall(truth = Class, estimate = .pred_class, event_level = "second")
+# 39 / (39 + 14) = 0.736
+#TP / (TP+FN)
+```
+El event_level = "second" le dice a R cual clase considerar como positivo, en este caso para q tome Malignant, porq sino toma por defecto por orden alfabetico y elegiria Benign como positivo. Accuracy no lo necesita porq cuenta todos los aciertos sin importar la clase
+Se suele usar mas el recall. En este caso, con un recall de 0.736, me esta diciendo que de todos los tumores que realmente eran malignos, el modelo detectó correctamente el 73.6%. Lo restante lo clasificó como benigno. En medicina un falso negatico es un error grave, entonces si me quedo con el accuracy de 86% no estoy teniendo en cuenta q el modelo falla en 1 de cada 4 tumores malignos aprox, lo cual sería grave en la práctica de un modelo médico.
+Suele pasar que si se quiere subir el recall (detectar más malignos), baja la precisión (más falsos positivos). Se puede priorizar uno o el otro dependiendo del contexto. En la medicina donde no queres perderte ningún maligno, sería mejor priorizar recall. Pero puede ser mejor priorizar accuracy cuando el tratamiento es muy invasivo o costoso y no se quiere tratar casos innecesariamente.
+
+---
+
+## Ejercicio 2
+
+*Reproducir los ejemplos presentados en el item 4.7.6 K-Nearest Neighbors del libro An Introduction to Statistical Learning (disponible en https://www.statlearning.com/) En la solapa Resources – R Materials – Chapter 4 .R File tienen el código de R bajo el encabezado # K-Nearest Neighbors
+https://www.statlearning.com/resources-first-edition. Estos ejemplos están desarrollados con la función knn de la librería class*
+
+## Ejemplo 1: Dataset Smarket
+
+El dataset `Smarket` contiene datos del índice S&P 500 entre 2001 y 2005. El objetivo es predecir si el mercado va a subir (`Up`) o bajar (`Down`) en un día determinado, usando como predictoras los retornos de los dos díasanteriores (`Lag1` y `Lag2`).
+
+```{r librerias2, message=FALSE, warning=FALSE}
+library(ISLR)
+library(class)
+```
+
+A diferencia de tidymodels donde usábamos `initial_split()`, acá dividimos train y test manualmente. Usamos los datos anteriores a 2005 para entrenar y los de 2005 para testear.
+
+```{r split_smarket}
+# TRUE para observaciones anteriores a 2005 (train)
+# FALSE para observaciones de 2005 (test)
+training <-  (Smarket$Year < 2005)
+```
+
+La función `knn()` no acepta dataframes directamente sino matrices, por eso armamos las matrices de predictoras con `cbind()`:
+
+```{r matrices_smarket}
+# Matriz de predictoras del training set
+# cbind une las columnas q le doy formando una matriz
+# [train,] dice q se quede solo con las filas donde train es true
+train.X <- cbind(Smarket$Lag1, Smarket$Lag2)[training, ]
+
+# Matriz de predictoras del test set
+test.X <- cbind(Smarket$Lag1, Smarket$Lag2)[!training, ]
+
+# Etiquetas reales del training set
+train.Direction <- Smarket$Direction[training]
+# este su usa porq knn necesita 4 inputs
+# knn(train.x, test.x, train.Direction, k)
+# sin las etiquetas reales del training set no sabría
+# a que clase corresponde cada punto del training
+```
+
+### KNN con K=1
+
+```{r knn1_smarket}
+# Fijamos semilla porque si hay empate entre vecinos, 
+# knn() elige al azar y queremos reproducibilidad
+set.seed(1)
+
+knn_pred_1 <- knn(train.X, test.X, train.Direction, k = 1)
+
+# Matriz de confusión
+table(knn_pred_1, Smarket$Direction[!training])
+
+# Accuracy: proporción de predicciones correctas
+mean(knn_pred_1 == Smarket$Direction[!training])
+```
+
+Con K=1, el modelo memoriza los datos de entrenamiento y generaliza muy mal: el accuracy es aproximadamente 0.50, equivalente a tirar una moneda al azar.Esto es un ejemplo de overfitting.
+
+### KNN con K=3
+
+```{r knn3_smarket}
+set.seed(1)
+
+knn_pred_3 <- knn(train.X, test.X, train.Direction, k = 3)
+
+table(knn_pred_3, Smarket$Direction[!training])
+
+mean(knn_pred_3 == Smarket$Direction[!training])
+```
+
+Con K=3 el accuracy mejora levemente a 0.536, pero sigue siendo muy bajo. Esto sugiere que `Lag1` y `Lag2` no son buenos predictores de la dirección del mercado, independientemente del valor de K.
+
+## Ejemplo 2: Dataset Caravan
+
+El dataset `Caravan` contiene información de 5822 clientes de una compañía de seguros. El objetivo es predecir si un cliente va a comprar un seguro de caravana (`Purchase`: Yes/No). 
+Este es un caso de dataset desbalanceado donde solo el 6% de los clientes  compra el seguro. Esto es importante porque un modelo que siempre predice "No" tendría un accuracy del 94%, pero sería inútil en la práctica.
+
+```{r proporcion_caravan}
+# Verificamos el desbalance
+mean(Caravan$Purchase == "No")
+```
+### Estandarización
+
+KNN es sensible a la escala de las variables porque usa distancias. Si una variable tiene valores muy grandes va a dominar el cálculo. Por eso  estandarizamos con `scale()`, que centra y escala cada variable:
+
+```{r escalar_caravan}
+# Estandarizamos todas las columnas menos Purchase (columna 86)
+standardized.X <- scale(Caravan[, -86])
+
+# Verificamos que la media sea 0 y el desvío 1
+var(standardized.X[, 1])   # debe ser ~1
+var(standardized.X[, 2])   # debe ser ~1
+```
+### División train/test
+
+En este ejemplo el libro usa los primeros 1000 casos como test set y el resto como training set
+
+```{r split_caravan}
+testing <- 1:1000
+
+train.X <- standardized.X[-testing, ]   # todo menos los primeros 1000
+test.X  <- standardized.X[testing, ]    # primeros 1000
+
+train.Y <- Caravan$Purchase[-testing]
+test.Y  <- Caravan$Purchase[testing]
+```
+
+### KNN con K=1
+
+```{r knn1_caravan}
+set.seed(1)
+knn.pred.1 <- knn(train.X, test.X, train.Y, k = 1)
+
+# Tasa de error del modelo
+mean(test.Y != knn.pred.1)
+
+# Tasa de error si siempre predecimos "No" (baseline)
+mean(test.Y != "No")
+
+# Matriz de confusión
+table(knn.pred.1, test.Y)
+
+# Precisión: de los que predijo como compradores, cuántos realmente compraron
+# Nos fijamos en la celda Yes/Yes de la tabla
+9 / (68 + 9)
+```
+
+La tasa de error del modelo (11.8%) parece buena, pero el baseline ya es 5.9% (siempre predecir "No"). Lo que realmente importa acá es la precisión: de los clientes que el modelo identificó como compradores, solo el 11.7% realmente compró. Esto es poco útil para una campaña de marketing.
+
+### KNN con K=3
+
+```{r knn3_caravan}
+set.seed(1)
+knn.pred.3 <- knn(train.X, test.X, train.Y, k = 3)
+
+table(knn.pred.3, test.Y)
+
+# Precisión con K=3
+5 / 26
+```
+
+Con K=3 la precisión sube a 19.2%, mejora respecto a K=1.
+
+### KNN con K=5
+
+```{r knn5_caravan}
+set.seed(1)
+knn.pred.5 <- knn(train.X, test.X, train.Y, k = 5)
+
+table(knn.pred.5, test.Y)
+
+# Precisión con K=5
+4 / 15
+```
+
+Con K=5 la precisión llega a 26.7%, más del doble que con K=1. Esto muestra que aumentar K ayuda en este caso, pero a costa de predecir menos positivos en total (el modelo se vuelve más conservador).
+
+Enyonces, en el dataset **Smarket**, KNN no logra buenos resultados porque las variables predictoras no tienen relación fuerte con la dirección del mercado.
+En el dataset **Caravan**, el accuracy no es la métrica adecuada por el desbalance de clases. La **precisión** es más relevante porque el objetivo es identificar clientes con alta probabilidad de compra para una campaña de marketing. A mayor K, mayor precisión pero menor cantidad de positivos detectados.
+La **estandarización es obligatoria** en KNN cuando las variables tienen escalas distintas, ya que afecta directamente el cálculo de distancias.
+
+La precisión mide: de los que predije como Yes, ¿cuántos realmente compraron? (Precisión = TP / (TP + FP))
+Cuando K es grande, el modelo se vuelve más conservador, solo dice Yes cuando la mayoría de sus K vecinos son Yes. Como Yes es muy raro (6% del dataset), necesita estar muy seguro para predecir Yes. Como resultado, predice menos Yes en total, pero los que predice son más confiables. En este caso el objetivo del libro es una campaña de marketing: la empresa quiere contactar clientes con alta probabilidad de comprar para no desperdiciar recursos. Por lo que si contactás a 77 personas y solo 9 compran, es mucho gasto inútil. Pero si contactás a 15 personas y 4 compran, es más eficiente
+
+---
+
+## Ejercicio 3
+
+*La Pima Indians Diabetes databasees un conjunto de datos cuyo objetivo es predecir si un paciente padece diabetes, basándose en ciertas mediciones diagnósticas incluidas en el conjunto de datos. Se aplicaron varias restricciones a la selección de estos casos de una base de datos más amplia. En particular, todos los pacientes incluidos son mujeres de al menos 21 años de ascendencia indígena Pima. La base de datos diabetes_mod.csv contiene datos adaptados y preprocesados*
+
+### Cargamos y exploramos el dataset
+
+```{r datos_diabetes}
+datos_diabetes <- read.csv("diabetes_mod.csv")
+
+str(datos_diabetes)
+summary(datos_diabetes)
+```
+Tiene 768 observaciones y 9 variables. Todas las variables son numéricas y no hay datos faltantes.
+
+### Preparamos los datos
+
+En la exploración se ve que la media de las variables varia bastante entre si, asi que vamos a tener que estandarizarlas para KNN ya que es sensible a las escalas de las variables. Y hay que pasar outcome a factor porque KNN de la libreria tidymodels necesita que sea factor para usar classification. 
+
+Primero pasamos outcome a factor y particionamos el dataset en training y test
+
+```{r diabetes_particion}
+datos_diabetes <- datos_diabetes %>% 
+  mutate(Outcome = as.factor(Outcome))
+
+diabetes_split <- initial_split(datos_diabetes, prop = 0.75, strata = Outcome)
+
+diabetes_train <- training(diabetes_split)
+diabetes_test <- testing(diabetes_split)
+
+#verificamos las proporciones
+proportionsTrain_diabetes <- diabetes_train %>% 
+  group_by(Outcome) %>% 
+  summarise(n = n()) %>% 
+  mutate(percent = 100*n/nrow(diabetes_train))
+
+kable(proportionsTrain_diabetes,
+      caption = "Proporcion de particiones del dataframe")
+```
+
+Estandarizo las variables
+
+```{r diabetes_receta}
+datos_diabetes_rec <- recipe(Outcome ~ ., datos_diabetes) %>% 
+  step_scale(all_predictors()) %>% 
+  step_center(all_predictors())
+
+#dejo outcome ~ . como forma de decirle q quiero predecir 
+#outcome en base a todas las predictoras
+```
+
+## Implementamos el modelo KNN
+
+Entrenamos el modelo con k = 7 vecinos. Evaluar la precisión en el conjunto de prueba. Defino como va a funcionar el knn y con cuantos vecinos, y el workflow del ajuste.
+
+```{r diabetes_knn}
+knn_diabetes <- nearest_neighbor(weight_func = "rectangular", neighbors = 7) %>% 
+  set_engine("kknn") %>% 
+  set_mode("classification")
+```
+
+
+```{r diabetes_workflow}
+knn_fit_diabetes <- workflow() %>% 
+  add_recipe(datos_diabetes_rec) %>% 
+  add_model(knn_diabetes) %>% 
+  fit(data = diabetes_train)
+
+knn_fit_diabetes
+```
+Predecimos con el clasificador las etiquetas del Outcome del conjunto de datos de testeo.
+
+```{r diabetes_predicciones}
+diabetes_test_pred <- predict(knn_fit_diabetes, diabetes_test) %>% 
+  bind_cols(diabetes_test)
+
+head(diabetes_test_pred, n = 7) %>% kable()
+```
+
+Ahora calculamos el desempeño de predecir en base a los 7 vecinos más cercanos. La consigna me pide la precisión del conjunto de prueba. Cuántos de los diabéticos que predijo son diabeticos en serio?
+
+```{r diabetes_desempeño}
+matriz_diabetes <- diabetes_test_pred %>% 
+  conf_mat(truth = Outcome, estimate = .pred_class)
+matriz_diabetes
+
+levels(diabetes_test_pred$Outcome)
+
+#calculo la precision, pido que R tome como positivo el segundo nivel q es 1
+#TP / (TP + FP)
+diabetes_test_pred %>% 
+  precision(truth = Outcome, estimate = .pred_class, event_level = "second")
+
+#38 / (38 + 21) tmb se puede calcular asi
+```
+Evaluando el desempeño del modelo para distintos valores de k, probé con k = 12 y la precisión subió de 0.644 a 0.660. Y probando con k = 20 la precisión sube a 0.7, así que a mayor k más precisión. No tengo ganas de repetir el codigo 2 veces mas asi que solo cambié los numeros en los que ya estaban para ver el resultado. 
+
+## Variar el valor de k
+
+Ahora variamos el valor de k entre 1 y 30. La idea es encontrar el valor de k que maximiza la "accuracy" en el conjunto de prueba. Luego graficar la precisión en función de k. Hay que hacer cross validation sobre el conjunto de entrenamiento porque no se pueden usar datos de testeo para elegir un hiperparámetro, solo se usan para la evaluación final
+
+```{r diabetes_k_accuracy}
+accuracy_k <- numeric(30)
+
+for (k in 1:30) {
+  
+  #especificamos el modelo knn
+  knn_spec_k <- nearest_neighbor(weight_func = "rectangular", neighbors = k) %>% 
+    set_engine("kknn") %>% 
+    set_mode("classification")
+  #usamos la receya q armamos antes
+  knn_workflow_k <- workflow() %>% 
+    add_recipe(datos_diabetes_rec) %>% 
+    add_model(knn_spec_k)
+  #ajustamos el modelo
+  knn_fit_k <- fit(knn_workflow_k, data = diabetes_train)
+  
+  #predecimos sobre el conjunto de prueba
+  predicciones_k <- predict(knn_fit_k, diabetes_test) %>% 
+    bind_cols(diabetes_test)
+  
+  #calculamos accuracy
+  metrics_k <- predicciones_k %>% 
+    accuracy(truth = Outcome, estimate = .pred_class)
+  accuracy_k[k] <- metrics_k$.estimate
+}
+
+```
+
+```{r accuracy_df}
+df_accuracy <- data.frame(K = 1:30,
+                          accuracy = accuracy_k)
+
+kable(df_accuracy)
+```
+
+Vemos que el valor de K que maximiza la accuracy del modelo es K = 27
+
+```{r grafico accuracy}
+ggplot(df_accuracy, aes(x = K, y = accuracy)) +
+  geom_line(color = "skyblue", size = 1) +
+  geom_point(color = "coral", size = 2) +
+  labs(title = "Precisión (accuracy) en función de cantidad de vecinos",
+       x = "Cantidad de vecinos (k)",
+       y = "Precisión (accuracy)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+Vemos que el valor de K que maximiza la accuracy del modelo es K = 27 y K = 28. Al principio del gráfico se ve que el modelo tiene exactitud mas baja, pero a medida que aumentamos el k sube considerablemente porque el modelo se vuelve más estable al promediar más pacientes. En el medio se ve que baja y vuelve a subir, lo que puede ser por fluctuaciones normales en cómo quedaron distribuidos los datos de la partición de prueba.
+
+## Ejercicio 4
+
+*El dataset arboles.csv contiene información del arbolado urbano de la Ciudad de Buenos Aires, incluyendo registros de cuatro especies: Jacarandá, Ceibo, Pindó y Eucaliptus. Cada árbol está descripto mediante tres atributos: altura total (altura_tot), diámetro (diametro) e inclinación (inclinacio). El objetivo es construir un árbol de decisión para predecir la especie del árbol (nombre_com) a partir de estos atributos.*
+
+*Cargar y explorar los datos*
+
+```{r datos}
+datos_arboles <- read.csv("arboles.csv", stringsAsFactors = TRUE)
+
+str(datos_arboles)
+summary(datos_arboles)
+```
+El dataset tiene 9584 observaciones y 4 variables, una de ellas categórica y el resto numéricas.
+
+*Visualizar la distribución de cada atributo numérico*
+
+Ahora visualizamos la distribución de cada atributo numérico, para eso generamos histogramas de frecuencia absoluta y vemos cómo se reparten los valores a lo largo de su rango posible.
+
+```{r distribucion_numericas}
+#datos_arboles[, -4] esto sirve para sacar la categórica
+datos_arboles %>% 
+  select(where(is.numeric)) %>% #pero este es mejor para df mas grandes
+  pivot_longer(everything(), names_to = "variable", values_to = "valor") %>% 
+  ggplot(aes(x = valor)) +
+  geom_rug(alpha = 0.3) +
+  labs(title = "Distribución de variables numéricas",
+       x = "Valores de variables",
+       y = "Frecuencia absoluta") +
+  scale_y_log10() +
+  geom_histogram(bins = 40, fill = "purple", color = "white") +
+  facet_wrap(~variable, scales = "free") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+```{r distribucion_otraforma}
+datos_arbo_long <- datos_arboles %>%
+  pivot_longer(-nombre_com, names_to = "variable", values_to = "valor")
+  #apilo todas las columnas menos la categórica
+
+ggplot(datos_arbo_long, aes(x = nombre_com, y = valor, fill = nombre_com)) +
+  geom_boxplot(show.legend = FALSE) +
+  facet_wrap(~ variable, scales = "free_y") + #cada panel tiene su Y
+  scale_fill_manual(values = c("Ceibo" = "coral", "Eucalipto" = "green",
+                               "Jacarandá" = "cyan", "Pindó" = "purple")) +
+  theme_bw() +
+  labs(title = "Distribución de cada variable por categoría de especie",
+       x = "Especie", y = NULL)
+```
+
+En las 3 variables se ve que tienen sus mayores frecuencias del lado izquierdo, por lo que son segadas a la derecha. La mayoría de observaciones están en valores bajos, pero algunos casos tienen numeros bastante más altos, lo que dice que la media está inflada por esos valores, podrían considerarse outliers.
+
+*Graficar relación entre diámetro y altura, coloreado por especie*
+
+```{r grafico_diametrovsaltura}
+ggplot(datos_arboles, aes(x = diametro, y = altura_tot, color = nombre_com)) +
+  geom_point(alpha = 0.5, size = 1) +
+  labs(title = "Diámetro vs Altura discriminado por especie de árbol",
+       x = "Diámetro",
+       y = "Altura") +
+  facet_wrap(~nombre_com, scales = "free") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        legend.position = "none")
+```
+
+Las cuatro especies muestran una relación positiva entre diámetro y altura, pero el Jacarandá parece ser mas consistente, el Eucalipto tiene más dispersión en ambas variables, el Ceibo parece tener más variabilidad vertical, y el Pindó se ve que la altura se estabiliza a partir decierto diámetro. Igual todos tienen puntos alejados que pueden considerarase outliers.
+
+*Entrenar un árbol de decisión completo con todos los atributos*
+*-Dividir el dataset en entrenamiento 80% y testing 20%*
+*-Entrenar el árbol de decisión completo con todos los atributos*
+*-Evaluar la precisión del modelo en datos de prueba*
+
+Empezamos separando el dataset
+
+```{r arboles_division}
+set.seed(1)
+
+arboles_split <- initial_split(datos_arboles, prop = 0.8, strata = nombre_com)
+
+arboles_train <- training(arboles_split)
+arboles_test <- testing(arboles_split)
+```
+
+Especificamos el arbol sin restricciones
+
+```{r arbol_spec}
+arbol_spec <- decision_tree(cost_complexity = 0) %>% 
+  #tidymodels poda el arbol por defecto, asi q para el compreto
+  #hay q poner cost complexity 0
+  set_engine("rpart") %>% 
+  set_mode("classification")
+```
+
+Entrenamos el arbol con los datos de entrenamiento, evaluamos los de prueba y calculamos exactitud
+
+```{r arbol_eval}
+arbol_fit <- arbol_spec %>% 
+  fit(nombre_com ~ ., data = arboles_train)
+#con el . le digo que use todas las cols como predictoras
+
+predicciones <- predict(arbol_fit, arboles_test) %>% 
+  bind_cols(arboles_test)
+
+predicciones %>% 
+  accuracy(truth = nombre_com, estimate = .pred_class)
+predicciones %>% 
+  precision(truth = nombre_com, estimate = .pred_class)
+```
+El modelo con lo pedido nos dio exactitud del 73.6% y precisión del 69.9%
+
+*Podar el árbol a tamaño óptimo, por ejemplo, 3 nodos terminales*
+
+Tidymodels ya poda el árbol automáticamente, con cost_complexity = 0 le decimos que haga el arbol completo. Así que para podarlo se lo podemos sacar y ver qué hace. Si no se podría agregar el hiperparámetro de la profundidad del arbol, en este caso prof = 2 donde la maxima cantidad de hojas puede ser 4
+
+```{r arbol_podado}
+arbol_spec_poda <- decision_tree(tree_depth = 3) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+arbol_fit_poda <- arbol_spec_poda %>% 
+  fit(nombre_com ~ ., data = arboles_train)
+
+predicciones_poda <- predict(arbol_fit_poda, arboles_test) %>% 
+  bind_cols(arboles_test)
+
+predicciones_poda %>% 
+  accuracy(truth = nombre_com, estimate = .pred_class)
+predicciones_poda %>% 
+  precision(truth = nombre_com, estimate = .pred_class)
+```
+La precisión y exactitud bajaron, pero no es raro porque al hacer el árbol completo el modelo podía estar sobreajustando. La otra forma podría ser usar validación cruzada para ver cual es la profundidad más óptima para el árbol.
+
+```{r arbol_folds}
+set.seed(1)
+K <- 5
+folds <- createFolds(datos_arboles$nombre_com, k = K)
+```
+
+```{r arbol_profundidad}
+H <- 30
+exactitud_promedio <- numeric(H)
+
+for (h in 1:H) {
+  indicadora_correcta <- numeric(K)
+  #para c/alttura entrenas k arboles,este vector se resetea
+  tree_spec <- decision_tree(
+    tree_depth = h,
+    cost_complexity = 0,  # sin regularización por complejidad,
+                          # para que el único control sea la profundidad
+    min_n = 1
+  ) %>%
+    set_engine("rpart") %>%
+    set_mode("classification")
+
+  for (k in 1:K) {
+    val <- folds[[k]] #conjunto de validacion
+    #le doy a val el vector de numeros de fila del fold numero k
+    ##[[]] extrae un elem de una lista
+    tree_fit <- tree_spec %>%
+      fit(nombre_com ~ ., data = datos_arboles[-val, ])
+      #para entrenar pido mi df pero sin las filas de validacion
+    predichos <- predict(tree_fit, datos_arboles[val, ])$.pred_class
+      #para predecir lo hago con mi df solo con las filas de validacion
+      #predichos guarda la columna de pred class como vector
+    indicadora_correcta[k] <- mean(predichos == datos_arboles[val, "nombre_com"])
+      #le pido el vector de etiquetas reales con  datos[val, "Wine"]
+      #mean me da la proporción de aciertos de ese fold(accuracy)
+  }
+
+  exactitud_promedio[h] <- mean(indicadora_correcta)
+  #promedia las k exactitudes de los folds para esta altura
+}
+```
+
+Hacemos un gráfico para ver la mejor profundidad
+
+```{r grafico_produndidades}
+resultados_cv <- data.frame(
+  profundidad = 1:H,
+  exactitud = exactitud_promedio
+)
+
+mejor_h <- resultados_cv$profundidad[which.max(resultados_cv$exactitud)]
+#which.max devuelve el indice del mayor valor del vector
+
+ggplot(resultados_cv, aes(x = profundidad, y = exactitud)) +
+  geom_line(color = "coral", size = 1) +
+  geom_point(color = "gray20" ) +
+  geom_point(data = filter(resultados_cv, profundidad == mejor_h),
+             color = "royalblue", size = 3.5) +
+  labs(
+    title = "Exactitud promedio (5-fold CV) según profundidad del árbol",
+    x = "max_depth",
+    y = "Accuracy"
+  ) +
+  theme_minimal()
+
+mejor_h
+```
+Dio como resultado que la mejor profundidad para el arbol del dataset seria 9, asi que probamos de vuelta con esa cota
+
+```{r arbol_cota}
+arbol_spec_poda_h <- decision_tree(cost_complexity = 0,
+                                   tree_depth = 9,
+                                   min_n = 1) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+arbol_fit_poda_h <- arbol_spec_poda_h %>% 
+  fit(nombre_com ~ ., data = arboles_train)
+
+predicciones_poda_h <- predict(arbol_fit_poda_h, arboles_test) %>% 
+  bind_cols(arboles_test)
+
+predicciones_poda_h %>% 
+  accuracy(truth = nombre_com, estimate = .pred_class)
+predicciones_poda_h %>% 
+  precision(truth = nombre_com, estimate = .pred_class)
+```
+Quedó con una exactitud del 73.9% y precisión del 69.3%
+
+*Analizar el modelo elegido. Qué atributo se usa en el primer corte?*
+
+Voy a usar el de profundidad 3 por sino es ilegible
+
+```{r}
+rpart.plot(arbol_fit_poda$fit)
+```
+El atributo que usa en el primer corte es altura_tot >= 20. El árbol nunca predice por inclinación por lo que resultó ser la menos predictiva de las 3. Y pindó nunca es mayoritaria en ningun grupo porque siempre hay alguna otra especie más numerosa mezzclada en esa zona del espacio. Nunca gana como predicción final.
+
+*Predecir la especie de un nuevo árbol con altura = 22m, diametro = 56cm e inclinación = 8°*
+
+```{r arbol_prediccion}
+nuevo_arbol <- data.frame(
+  altura_tot = 22,
+  diametro = 56,
+  inclinacio = 8
+)
+
+predict(arbol_fit_poda, nuevo_arbol)
+```
+Predijo eucalipto, como se ve en el gráfico que cualquier árbol con altura mayor a 20 lo va a predecir como Eucalipto. Además, en los plots del principio se veia que el Eucalipto tiende a ser más alto y ancho que el resto.
+
+*Armar la matriz de confusión y calcular las métricas de desempeño vistas en clase*
+
+```{r matriz_confusion}
+matriz <- predicciones %>% 
+  conf_mat(truth = nombre_com, estimate = .pred_class)
+matriz
+
+#metricas
+metricas <- metric_set(accuracy, precision, recall, f_meas)
+predicciones %>% metricas(truth = nombre_com, estimate = .pred_class)
+```
+```{r grafico_matriz}
+matriz_df <- as.data.frame(matriz$table)
+#da columnas prediction, truth y freq
+
+#ggplot(matriz_df, aes(x = Truth, y = Prediction, fill = Freq)) +
+  #geom_tile( color = "white") +
+  #geom_text(aes(label = Freq), color = "black", size = 4) +
+  #scale_fill_gradient(low = "hotpink", high = "cyan") +
+  #labs(title = "Matriz de confusión",
+    #x = "Clase real",
+    #y = "Clase predicha",
+    #fill = "Frecuencia") +
+  #theme_bw()
+
+autoplot(matriz, type = "heatmap") +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(title = "Matriz de confusión") +
+  theme_bw()
+```
+Para calcular métricas a mano a partir de la matriz:
+ 
+*Accuracy =* Suma de la diagonal / suma total de la matriz
+*Error de clasificación =* 1 - Accuracy 
+*Precisión(por clase) =* Predecidos bien de esa clase (diagonal) / suma de la fila de esa clase (predecidos)
+Para una precisión general, se promedian las 4 precisiones.
+*Recall (por clase) =* diagonal de esa columna (predecidos bien) / suma de la columna de esa clase (los reales) 
+Para recall general, tmb es el promedio del recall de todas las categorias.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

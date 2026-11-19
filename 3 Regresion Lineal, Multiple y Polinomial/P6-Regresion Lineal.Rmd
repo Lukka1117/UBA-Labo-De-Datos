@@ -1,0 +1,767 @@
+---
+title: "Regresión Lineal Simple"
+subtitle: "Práctica 6 - Laboratorio de Datos"
+author: "Luciana Lorenzo"
+date: "`r Sys.Date()`"
+
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: false
+  fontsize: 10pt
+  geometry: margin=1.5cm
+  header-includes:
+  - \usepackage{setspace}
+  - \singlespacing
+  - \usepackage{titlesec}
+  - \titlespacing*{\section}{0pt}{2ex}{1ex}
+  - \titlespacing*{\subsection}{0pt}{1.5ex}{0.8ex}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE, comment = NA)
+```
+
+\newpage
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(boot)
+library(knitr)
+```
+
+---
+
+## Actividad previa
+
+Antes de comenzar con los ejercicios, se carga el archivo de datos correspondiente a la libreta universitaria y se ajusta un modelo de regresión lineal simple.
+
+```{r actividad_previa}
+actividad <- read.table("datos_libreta_12623.txt", header = TRUE)
+
+modelo <- lm(ID ~ RU, actividad)
+summary(modelo)
+```
+
+La ordenada al origen estimada ($\hat{\beta}_0$) es **106.30334** y la pendiente estimada ($\hat{\beta}_1$) es **0.03631**. El coeficiente de determinación obtenido es $R^2 = 0.9626$, lo que significa que el 96.26% de la variabilidad total del índice de daño (ID) en el ADN de los embriones está explicada por la variación en la concentración de RoundUp (RU). El porcentaje restante se debe a error aleatorio y otras variables no contempladas en el modelo.
+
+```{r graf_actividad_previa}
+ggplot(actividad, aes(x = RU, y = ID)) + 
+  geom_point(color = "blue") +
+  geom_abline(
+    intercept = coef(modelo)[1],
+    slope = coef(modelo)[2],
+    color = "red") +
+  labs(
+    title = "Gráfico de dispersión con la recta de lm()",
+    x     = "Concentración de RU",
+    y     = "Índice de daño (ID)")
+```
+
+Al comparar los resultados entre compañeros, cada libreta genera una muestra aleatoria distinta, por lo que las estimaciones varían. Los parámetros $\beta_0 = 106.5$ y $\beta_1 = 0.037$ son los valores teóricos fijos, únicos e inobservables de toda la población. Los estimadores (los de sombrerito, calculados con `lm()`) son variables aleatorias cuyos valores cambian según la muestra. Los histogramas de los estimadores de todos los alumnos se centran alrededor de esos valores poblacionales, lo que demuestra que los estimadores de mínimos cuadrados son **insesgados**: aunque la estimación de un alumno en particular pueda estar un poco por encima o por debajo del valor real, en promedio, si se toman infinitas muestras, el centro de la distribución de los estimadores coincide con el parámetro poblacional verdadero.
+
+---
+
+## Ejercicio 1
+
+```{r libraries_penguins, message=FALSE, warning=FALSE}
+library(palmerpenguins)
+datos_pingu <- penguins
+```
+
+**1.1** *Cargar la librería `palmerpenguins` y el dataset `penguins`. Borrar las observaciones que tengan NA en alguna variable. ¿Cuántas son?*
+
+```{r na_penguins}
+sum(is.na(datos_pingu))
+summary(datos_pingu)
+
+datos_pingu <- datos_pingu %>% 
+  drop_na()
+summary(datos_pingu)
+```
+
+Había 2 NA en `bill_length_mm`, 2 en `bill_depth_mm`, 2 en `flipper_length_mm`, 2 en `body_mass_g` y 11 en `sex`, sumando **19 NA en total**. Tras eliminar las filas con valores faltantes, el dataset queda limpio.
+
+---
+
+**1.2** *Realizar un gráfico de dispersión que muestre la relación entre el ancho y el largo del pico de los pingüinos de la especie Chinstrap.*
+
+Para cruzar dos variables numéricas se usa `geom_point()`. La consigna pide el ancho (`bill_depth_mm`) en el eje X y el largo (`bill_length_mm`) en el eje Y.
+
+```{r graf_chinstrap}
+datos_chinstrap <- datos_pingu %>% 
+  filter(species == "Chinstrap")
+
+ggplot(datos_chinstrap, aes(x = bill_depth_mm, y = bill_length_mm)) +
+  geom_point(alpha = 0.8, color = "blue") +
+  geom_smooth(method = "lm", se = FALSE, color = "red4", linewidth = 1) +
+  labs(title = "Recta de regresión entre ancho y largo del pico en pingüinos Chinstrap",
+       x     = "Ancho del pico (mm)",
+       y     = "Largo del pico (mm)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+---
+
+**1.3** *Escribir la ecuación de la recta estimada que tenga como variable respuesta el largo del pico y como explicativa al ancho.*
+
+```{r modelo_chinstrap}
+modelo_chins <- lm(bill_length_mm ~ bill_depth_mm, datos_chinstrap)
+# Y ~ X: se lee "Y (respuesta) en función de X (explicativa)"
+modelo_chins
+```
+
+La ecuación estimada es: $\widehat{\text{Largo}} = 13.428 + 1.922 \times \text{Ancho}$
+
+---
+
+**1.4** *¿Qué unidades tienen la ordenada al origen y la pendiente? ¿Cómo se interpretan?*
+
+Ambos coeficientes tienen unidades en milímetros (mm), ya que tanto el ancho como el largo del pico se miden en esa unidad.
+
+La **pendiente** estimada ($\hat{\beta}_1 = 1.922$) indica que, para los pingüinos Chinstrap, por cada incremento de 1 mm en el ancho del pico, el largo del pico aumenta en promedio **1.922 mm**.
+
+La **ordenada al origen** estimada ($\hat{\beta}_0 = 13.428$) indica técnicamente el largo esperado del pico cuando el ancho es 0 mm. Sin embargo, no existen pingüinos con un ancho de pico de 0 mm, por lo que en este caso la ordenada no tiene una interpretación biológica real, funciona únicamente como una constante de ajuste matemático para situar la recta en el plano.
+
+---
+
+**1.5** *a) ¿Cuál es el valor de $R^2$?* 
+*b) ¿Cuál es el valor del ECM?*
+*c) ¿Qué mide cada uno?* 
+*d) Programar una función que dado un modelo ajustado calcule el $R^2$ y el ECM.*
+
+**a) y b)**
+
+```{r r2_ecm_chinstrap}
+r2  <- summary(modelo_chins)$r.squared
+ecm <- mean(residuals(modelo_chins)^2)
+
+data.frame(Métrica = c("R²", "ECM"), Valor = round(c(r2, ecm), 4)) %>%
+  kable(caption = "R² y ECM del modelo Chinstrap")
+```
+
+**c)** El **$R^2$** (coeficiente de determinación) es una métrica que toma valores entre 0 y 1. Mide la proporción de la variabilidad de la variable respuesta (Y) que el modelo logra explicar usando la variable explicativa (X). Al haber obtenido $R^2 = 0.4271$, el 42.71% de las diferencias en el largo del pico entre pingüinos Chinstrap se explica por las diferencias en el ancho del pico. El 57.29% restante es variabilidad que el modelo no puede explicar (genética, edad, error aleatorio, etc.).
+
+El **ECM** (Error Cuadrático Medio) mide el promedio de los errores al cuadrado. Calcula la distancia vertical desde cada punto real hasta la recta de regresión, eleva esas distancias al cuadrado y saca el promedio. Sus unidades son mm² (el cuadrado de la unidad de Y). Al aplicarle la raíz cuadrada se obtiene el RMSE: $\sqrt{6.2941} \approx 2.51$ mm, que se interpreta directamente, cuando se usa la recta para predecir el largo del pico a partir del ancho, el error promedio es de aproximadamente **2.51 mm**.
+
+**d)**
+
+```{r funcion_r2_ecm}
+calcular_R2_ECM <- function(modelo) {
+  coeficiente_det <- summary(modelo)$r.squared
+  ecm <- mean(residuals(modelo)^2)
+  resultados <- list(R2 = coeficiente_det, ECM = ecm)
+  return(resultados)
+}
+
+calcular_R2_ECM(modelo_chins)
+```
+
+---
+
+**1.6** *Un pingüino Chinstrap tiene un pico de 2 cm de ancho. ¿Qué largo predice el modelo? ¿Sería adecuado usar el modelo para un pingüino con un pico de 5 mm de ancho?*
+
+```{r prediccion_chinstrap}
+largo_predicho <- 13.428 + 1.922 * 20  # 2 cm = 20 mm
+largo_predicho
+```
+
+Bajo las condiciones del modelo lineal ajustado para la especie Chinstrap, un pingüino con un ancho de pico de 20 mm tendría, en promedio, un largo de pico esperado de **51.868 mm**.
+
+Para un pingüino pequeño con un pico de 5 mm de ancho, **no sería adecuado** usar este modelo. Un ancho de 5 mm está completamente por debajo del rango de valores observados en el dataset (donde el mínimo registrado para esta especie es de 13.10 mm). Intentar predecir para un valor tan lejano al rango de entrenamiento se denomina **extrapolación**. No hay evidencia biológica ni estadística de que la relación lineal se mantenga en ese rango, lo que puede llevar a predicciones sin sentido.
+
+---
+
+**1.7** *Repetir el ítem 1.3 para las otras dos especies.*
+
+```{r modelos_otras_especies}
+datos_adelie <- datos_pingu %>% 
+  filter(species == "Adelie")
+modelo_adelie <- lm(bill_length_mm ~ bill_depth_mm, datos_adelie)
+
+datos_gentoo <- datos_pingu %>% filter(species == "Gentoo")
+modelo_gentoo <- lm(bill_length_mm ~ bill_depth_mm, datos_gentoo)
+
+data.frame(Especie   = c("Adelie", "Gentoo"),
+           Intercept = round(c(coef(modelo_adelie)[1], coef(modelo_gentoo)[1]), 3),
+           Pendiente = round(c(coef(modelo_adelie)[2], coef(modelo_gentoo)[2]), 3)) %>% 
+  kable(caption = "Coeficientes estimados por especie")
+```
+
+---
+
+**1.8** *Graficar los datos con las rectas ajustadas usando `geom_smooth()` y luego "a mano" con `geom_abline()`.*
+
+Recta de regresión para Adelie usando `geom_smooth()`:
+
+```{r graf_adelie_smooth}
+ggplot(datos_adelie, aes(x = bill_depth_mm, y = bill_length_mm)) +
+  geom_point(alpha = 0.8, color = "hotpink") +
+  geom_smooth(method = "lm", se = FALSE, color = "green", linewidth = 1.2) +
+  labs(title = "Recta de regresión entre ancho y largo del pico en pingüinos Adelie",
+       x     = "Ancho del pico (mm)",
+       y     = "Largo del pico (mm)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Recta de regresión para Gentoo usando `geom_abline()` con los coeficientes de `lm()`:
+
+```{r graf_gentoo_abline}
+ggplot(datos_gentoo, aes(x = bill_depth_mm, y = bill_length_mm)) +
+  geom_point(alpha = 0.8, color = "purple") +
+  geom_abline(
+    intercept = coef(modelo_gentoo)[1],
+    slope     = coef(modelo_gentoo)[2],
+    color     = "orange2",
+    linewidth  = 1.2) +
+  labs(title = "Recta de regresión entre ancho y largo del pico en pingüinos Gentoo",
+       x     = "Ancho del pico (mm)",
+       y     = "Largo del pico (mm)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+---
+
+**1.9** *Definir una variable `ancho_centrado` para los pingüinos Chinstrap y repetir el modelo.*
+
+Centrar la variable consiste en restarle el promedio a cada observación $\text{ancho\_centrado}_i = \text{ancho}_i - \text{ancho\_promedio}$. Esto desplaza toda la nube de puntos hacia la izquierda hasta que el centro queda sobre el cero del eje X, sin modificar la inclinación de la recta.
+
+```{r modelo_centrado}
+datos_chinstrap <- datos_chinstrap %>% 
+  mutate(ancho_centrado = bill_depth_mm - mean(bill_depth_mm))
+
+modelo_chins_centrado <- lm(bill_length_mm ~ ancho_centrado, datos_chinstrap)
+modelo_chins_centrado
+```
+
+```{r graf_centrado}
+ggplot(datos_chinstrap, aes(x = ancho_centrado, y = bill_length_mm)) +
+  geom_point(alpha = 0.8, color = "hotpink") +
+  geom_abline(
+    intercept = coef(modelo_chins_centrado)[1],
+    slope     = coef(modelo_chins_centrado)[2],
+    color     = "orange2",
+    linewidth  = 1.2) +
+  labs(title = "Recta de regresión con ancho centrado — pingüinos Chinstrap",
+       x     = "Ancho centrado del pico (mm)",
+       y     = "Largo del pico (mm)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+---
+
+**1.10** *¿Cómo se interpretan ahora la ordenada y la pendiente? Ventajas y desventajas de cada enfoque.*
+
+La **pendiente** se mantiene igual (1.922 mm), por cada mm que aumenta el ancho centrado, el largo aumenta en promedio 1.922 mm.
+
+La **ordenada al origen cambia y gana sentido biológico**. Como centrar la variable hace que el valor 0 represente un pingüino con ancho exactamente igual al promedio, la ordenada (48.83 mm) ahora representa el **largo de pico esperado para un pingüino con ancho de pico promedio**.
+
+```{r tabla_ventajas, echo=FALSE}
+data.frame(
+  Enfoque = c("Ancho original", "Ancho centrado"),
+  Ventaja = c("Intuitivo para predecir usando el ancho real medido en campo",
+              "La ordenada representa el largo de un pingüino típico 
+              (biológicamente interpretable)"),
+  Desventaja = c("La ordenada es un valor sin sentido biológico (largo para ancho = 0)",
+                 "Para predecir requiere el paso previo de restar el 
+                 promedio al dato observado")) %>% 
+  kable(caption = "Ventajas y desventajas de cada enfoque")
+```
+
+---
+
+**1.11** *Calcular el $R^2$ para el modelo centrado. ¿Es igual o diferente al de 1.5? Explicar.*
+
+```{r r2_centrado}
+calcular_R2_ECM(modelo_chins_centrado)
+```
+
+El $R^2$ y el ECM son **idénticos** a los del modelo sin centrar. Centrar la variable es una transformación lineal rígida solo desplaza el gráfico hacia un costado pero no deforma las distancias verticales entre los puntos y la recta (los residuos). Como el ECM y el $R^2$ se calculan a partir de esos residuos, y estos no cambian, los resultados son los mismos. El poder predictivo de la variable explicativa es idéntico independientemente de si se usa la escala original o la centrada.
+
+---
+
+## Ejercicio 2
+
+**2.1** *Utilizando la librería mtcars incluida en R-base, crear un gráfico para visualizar la relación entre la potencia del motor (`hp`) y la eficiencia en millas por galón (`mpg`). ¿Qué patrón se observa?*
+
+La potencia del motor es la variable explicativa (X) y la eficiencia en combustible es la variable respuesta (Y), ya que tiene sentido que la potencia determine qué tan eficiente es el auto.
+
+```{r graf_cars}
+datos_cars <- mtcars
+
+ggplot(datos_cars, aes(x = hp, y = mpg)) +
+  geom_point(alpha = 0.8, color = "purple3") +
+  labs(title = "Relación entre la potencia del motor y la eficiencia de combustible",
+       x     = "Potencia del motor (hp)",
+       y     = "Eficiencia (mpg)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Se observa una tendencia negativa. A mayor potencia del motor, menor eficiencia en el consumo de combustible. Sin embargo, la relación **no es lineal**. La caída en la eficiencia es muy pronunciada en los valores bajos de potencia, pero se aplana progresivamente en los valores más altos.
+
+---
+
+**2.2** *Realizar una regresión lineal simple para predecir `mpg` en función de `hp`. ¿Cuál es el $R^2$? ¿Es adecuado el ajuste lineal?*
+
+```{r modelo_cars}
+modelo_cars <- lm(mpg ~ hp, datos_cars)
+modelo_cars
+
+cars_R2_ECM <- calcular_R2_ECM(modelo_cars)
+
+data.frame(Métrica = c("R²", "ECM"),
+           Valor   = round(c(cars_R2_ECM$R2, cars_R2_ECM$ECM), 4)) %>%
+  kable(caption = "R² y ECM del modelo mtcars")
+```
+
+```{r graf_cars_recta}
+ggplot(datos_cars, aes(x = hp, y = mpg)) +
+  geom_point(alpha = 0.8, color = "purple3") +
+  geom_smooth(method = "lm", se = FALSE, color = "green", linewidth = 1.2) +
+  labs(title = "Relación entre la potencia del motor y la eficiencia de combustible",
+       x     = "Potencia del motor (hp)",
+       y     = "Eficiencia (mpg)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+La ordenada al origen es 30.099 y la pendiente es −0.0682. Por cada unidad adicional de potencia, la eficiencia disminuye en promedio 0.068 mpg.
+
+Con un $R^2 = 0.60$, el modelo explica el 60% de la variabilidad, lo cual es moderado. Más importante aún, el gráfico confirma que **el ajuste lineal no es adecuado**. Los puntos no siguen un patrón recto sino una curva con forma de función decreciente que se aplana. Usar esta recta para predecir puede generar errores graves, especialmente en los extremos del rango de potencia.
+
+---
+
+## Ejercicio 3
+
+*El dataset de Anscombe (1973) comprende cuatro conjuntos de datos de once puntos (x, y) cada uno, diseñados para demostrar la importancia de graficar los datos al analizar relaciones entre variables.*
+
+**3.1** *Cargar e inspeccionar la estructura del dataset.*
+
+```{r anscombe_str}
+data("anscombe")
+str(anscombe)
+summary(anscombe)
+```
+
+---
+
+**3.2** *Reacomodar el dataset en formato long y analizar la tendencia central y dispersión de cada grupo.*
+
+```{r anscombe_long}
+anscomb_long <-
+  rbind(tibble(x = anscombe$x1, y = anscombe$y1, grupo_q = "q1"),
+        tibble(x = anscombe$x2, y = anscombe$y2, grupo_q = "q2"),
+        tibble(x = anscombe$x3, y = anscombe$y3, grupo_q = "q3"),
+        tibble(x = anscombe$x4, y = anscombe$y4, grupo_q = "q4"))
+
+str(anscomb_long)
+```
+
+```{r anscombe_tendencias}
+anscomb_tendencias <- anscomb_long %>% 
+  group_by(grupo_q) %>%
+  summarise(
+    media_x = mean(x),
+    sd_x    = sd(x),
+    media_y = mean(y),
+    sd_y    = sd(y)
+  )
+
+kable(anscomb_tendencias, digits = 3,
+      caption = "Tendencia central y dispersión por grupo")
+```
+
+El promedio de X es igual para los 4 grupos, y lo mismo ocurre con Y. Los desvíos estándar también coinciden. Si solo se miraran estos números, se podría concluir erróneamente que los cuatro conjuntos describen el mismo fenómeno. El cuarteto de Anscombe demuestra que el promedio y el desvío estándar no son suficientes para entender la estructura de los datos, **es indispensable visualizarlos**.
+
+---
+
+**3.3** *Calcular promedio, mediana, desvío, mínimo y máximo de X e Y para cada grupo.*
+
+```{r anscombe_resumen}
+anscomb_cosas <- anscomb_long %>% 
+  group_by(grupo_q) %>%
+  summarise(
+    media_x = mean(x),   sd_x = sd(x),
+    mediana_x = median(x), min_x = min(x), max_x = max(x),
+    media_y = mean(y),   sd_y = sd(y),
+    mediana_y = median(y), min_y = min(y), max_y = max(y)
+  )
+
+kable(anscomb_cosas, digits = 3,
+      caption = "Estadísticos descriptivos por grupo")
+```
+
+---
+
+**3.4** *Realizar gráficos de dispersión de Y vs X para cada grupo.*
+
+```{r anscombe_graf_dispersion}
+ggplot(anscomb_long, aes(x = x, y = y)) +
+  geom_point(aes(color = grupo_q)) +
+  facet_wrap(~ grupo_q) +
+  labs(title = "El Cuarteto de Anscombe: Gráficos de Dispersión",
+       x     = "Variable X",
+       y     = "Variable Y") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+A pesar de tener estadísticos idénticos, los cuatro grupos son visualmente muy distintos. q1 muestra una relación lineal clara, q2 una curva cuadrática, q3 una relación casi perfectamente lineal con un outlier, y q4 una nube vertical con un único punto alejado que arrastra la recta.
+
+---
+
+**3.5** *Ajustar modelos de RLS para cada conjunto. Analizar los parámetros estimados.*
+
+```{r anscombe_modelos}
+datos_q1 <- filter(anscomb_long, grupo_q == "q1")
+modelo_q1 <- lm(y ~ x, data = datos_q1)
+
+datos_q2 <- filter(anscomb_long, grupo_q == "q2")
+modelo_q2 <- lm(y ~ x, data = datos_q2)
+
+datos_q3 <- filter(anscomb_long, grupo_q == "q3")
+modelo_q3 <- lm(y ~ x, data = datos_q3)
+
+datos_q4 <- filter(anscomb_long, grupo_q == "q4")
+modelo_q4 <- lm(y ~ x, data = datos_q4)
+
+data.frame(
+  Grupo     = c("q1", "q2", "q3", "q4"),
+  Intercept = round(c(coef(modelo_q1)[1], coef(modelo_q2)[1],
+                      coef(modelo_q3)[1], coef(modelo_q4)[1]), 3),
+  Pendiente = round(c(coef(modelo_q1)[2], coef(modelo_q2)[2],
+                      coef(modelo_q3)[2], coef(modelo_q4)[2]), 3)) %>% 
+  kable(caption = "Coeficientes estimados por grupo")
+```
+
+Para los 4 grupos la ordenada al origen es aproximadamente 3 y la pendiente aproximadamente 0.5. La ecuación estimada de la recta es prácticamente idéntica para todos los conjuntos.
+
+---
+
+**3.6** *Calcular el $R^2$ para cada modelo.*
+
+```{r anscombe_r2}
+data.frame(
+  Grupo = c("q1", "q2", "q3", "q4"),
+  R2 = round(c(calcular_R2_ECM(modelo_q1)$R2,
+               calcular_R2_ECM(modelo_q2)$R2,
+               calcular_R2_ECM(modelo_q3)$R2,
+               calcular_R2_ECM(modelo_q4)$R2), 4)) %>% 
+  kable(caption = "R² por grupo")
+```
+
+El $R^2$ es alrededor de 0.66 para los 4 grupos. Una vez más, los números son idénticos.
+
+---
+
+**3.7** *Comparar intercepto, pendiente y $R^2$ entre los modelos. Extraer conclusiones.*
+
+Todos los grupos tienen la misma tendencia central, la misma dispersión, la misma recta estimada y el mismo $R^2$. Sin embargo, los gráficos de dispersión muestran que los datos se comportan de manera completamente distinta. Esto ilustra la limitación fundamental de resumir un modelo solo con métricas numéricas, **siempre es necesario visualizar los datos**.
+
+---
+
+**3.8** *Graficar las rectas de regresión con los datos observados. Criticar cada modelo.*
+
+```{r anscombe_graf_rectas}
+ggplot(anscomb_long, aes(x = x, y = y)) +
+  geom_point(aes(color = grupo_q)) +
+  geom_smooth(method = "lm", se = FALSE, color = "gray30", linewidth = 0.7) +
+  facet_wrap(~ grupo_q) +
+  labs(title = "El Cuarteto de Anscombe: Rectas de Regresión",
+       x     = "Variable X",
+       y     = "Variable Y") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+**q1:** El ajuste es adecuado. Los puntos muestran una relación lineal clara con dispersión homogénea alrededor de la recta. No presenta datos atípicos.
+
+**q2:** El modelo no es adecuado. Los puntos siguen una curva cuadrática y la recta no captura ese patrón independientemente de si hay o no outliers. Se necesitaría un ajuste polinómico.
+
+**q3:** El modelo no es adecuado con el outlier presente, ya que este ejerce un efecto palanca que desvía la recta y baja el $R^2$. Sin embargo, excluyendo ese punto, los datos restantes se alinean casi perfectamente, por lo que **podría usarse RLS si se justifica la exclusión del outlier**.
+
+**q4:** El modelo lineal no es adecuado. Todos los puntos tienen el mismo valor de X excepto uno alejado a la derecha, que es el que arrastra la recta hacia una diagonal. Si se excluyera ese punto, la X no variaría en absoluto (varianza de X = 0), lo que hace imposible calcular una regresión lineal simple, ya que la pendiente se calcula como $\text{cov}(X,Y)/\text{var}(X)$ y dividir por cero no está definido.
+
+---
+
+## Ejercicio 4
+
+```{r libraries_gapminder, message=FALSE, warning=FALSE}
+library(gapminder)
+datos_gap_2007 <- gapminder %>% 
+  filter(year == 2007)
+```
+
+**4.1** *Seleccionar datos de un año particular y realizar un gráfico de dispersión entre PIB per cápita y esperanza de vida.*
+
+```{r graf_gapminder}
+ggplot(datos_gap_2007, aes(x = gdpPercap, y = lifeExp)) +
+  geom_point(alpha = 0.8, color = "hotpink") +
+  labs(title = "Relación entre el PIB per cápita y la esperanza de vida en 2007",
+       x     = "PIB per cápita",
+       y     = "Esperanza de vida") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+---
+
+**4.2** *Realizar una RLS para predecir la esperanza de vida en función del PIB per cápita para 1997 en el continente americano.*
+
+```{r modelo_gapminder}
+gapminder_1997_Ame <- gapminder %>% 
+  filter(year == 1997, continent == "Americas")
+
+modelo_gap <- lm(lifeExp ~ gdpPercap, gapminder_1997_Ame)
+modelo_gap
+```
+
+La ordenada al origen es $6.781 \times 10^1 = 67.81$ y la pendiente es $3.758 \times 10^{-4} = 0.000376$. Por cada dólar adicional de PIB per cápita, la esperanza de vida aumenta en promedio 0.000376 años.
+
+---
+
+**4.3** *Discutir si el modelo es adecuado.*
+
+```{r r2_gapminder}
+summary(modelo_gap)$r.squared
+```
+
+```{r graf_gapminder_recta}
+ggplot(gapminder_1997_Ame, aes(x = gdpPercap, y = lifeExp)) +
+  geom_point(alpha = 0.8, color = "hotpink") +
+  geom_smooth(method = "lm", se = FALSE, color = "green") +
+  labs(title = "PIB per cápita vs. esperanza de vida en América 1997",
+       x     = "PIB per cápita",
+       y     = "Esperanza de vida") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+El $R^2 = 0.37$ indica que el modelo explica solo el 37% de la variabilidad en la esperanza de vida, lo que es moderado-bajo. Mirando el gráfico, los puntos no muestran un patrón claramente no lineal sino una dispersión alta alrededor de la recta, hay países con PIB similares pero esperanzas de vida muy distintas, lo que sugiere que el PIB per cápita solo no alcanza para explicar las diferencias entre países americanos en 1997. El modelo lineal no es inadecuado por su forma, sino que tiene bajo poder predictivo al ignorar otros factores relevantes como el sistema de salud, la desigualdad o la violencia.
+---
+
+**4.4** *Repetir el modelo usando el logaritmo de ambas variables. Discutir la conveniencia.*
+
+```{r modelo_gap_log}
+modelo_gap_log <- lm(log(lifeExp) ~ log(gdpPercap), gapminder_1997_Ame)
+modelo_gap_log
+
+summary(modelo_gap_log)$r.squared
+```
+
+```{r graf_gap_log}
+ggplot(gapminder_1997_Ame, aes(x = log(gdpPercap), y = log(lifeExp))) +
+  geom_point(alpha = 0.8, color = "hotpink") +
+  geom_smooth(method = "lm", se = FALSE, color = "green") +
+  labs(title = "Log(PIB per cápita) vs. Log(esperanza de vida) — América 1997",
+       x     = "Log(PIB per cápita)",
+       y     = "Log(esperanza de vida)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+Al aplicar logaritmo a ambas variables el $R^2$ sube de 0.37 a 0.62, una mejora considerable. La transformación logarítmica aplasta los valores grandes y ordena los chicos, lo que hace que los puntos se alineen de forma más lineal y la recta prediga mejor.
+
+En un modelo log-log la interpretación de la pendiente cambia: en lugar de leerse "por cada unidad que aumenta X, Y cambia en $\hat{\beta}_1$", se lee en términos porcentuales, **por cada 1% que aumenta el PIB per cápita, la esperanza de vida aumenta en promedio un 0.0785%**.
+
+---
+
+## Ejercicio 5
+
+**5.1** *Cargar el conjunto de datos iris.*
+
+```{r iris_carga}
+datos_iris <- iris
+```
+
+---
+
+**5.2** *Explorar gráfica y analíticamente los datos.*
+
+```{r iris_exploracion}
+str(datos_iris)
+summary(datos_iris)
+colSums(is.na(datos_iris))
+datos_iris %>% count(Species)
+```
+
+El dataset tiene 150 observaciones, 4 variables numéricas y 1 categórica. No tiene NAs. Las muestras están balanceadas con 50 ejemplares de cada especie.
+
+```{r iris_resumen_tabla}
+resumen_iris <- datos_iris %>%
+  group_by(Species) %>%
+  summarise(
+    Petal.Length_Media = mean(Petal.Length), Petal.Length_SD = sd(Petal.Length),
+    Petal.Width_Media  = mean(Petal.Width),  Petal.Width_SD  = sd(Petal.Width),
+    Sepal.Length_Media = mean(Sepal.Length), Sepal.Length_SD = sd(Sepal.Length),
+    Sepal.Width_Media  = mean(Sepal.Width),  Sepal.Width_SD  = sd(Sepal.Width)
+  )
+
+resumen_iris2 <- as.data.frame(t(resumen_iris[-1]))
+# t es la funcoin de transposicion de matrices, gira la tabla 90 grados
+# le pido el dataframe sin la primera columna (species)
+colnames(resumen_iris2) <- resumen_iris$Species
+
+kable(resumen_iris2, digits = 3,
+      caption = "Estadísticos descriptivos por especie")
+```
+
+```{r iris_graf_petalos}
+ggplot(datos_iris, aes(x = Petal.Width, y = Petal.Length)) +
+  geom_point(color = "hotpink", alpha = 0.8, size = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed", linewidth = 0.8) +
+  facet_wrap(~ Species) +
+  labs(title = "Análisis de pétalos por especie",
+       x     = "Ancho del pétalo (cm)",
+       y     = "Largo del pétalo (cm)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+```{r iris_graf_sepalos}
+ggplot(datos_iris, aes(x = Sepal.Width, y = Sepal.Length)) +
+  geom_point(color = "purple3", alpha = 0.8, size = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed", linewidth = 0.8) +
+  facet_wrap(~ Species) +
+  labs(title = "Análisis de sépalos por especie",
+       x     = "Ancho del sépalo (cm)",
+       y     = "Largo del sépalo (cm)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+---
+
+**5.3** *Intentar una RLS para predecir la longitud del sépalo en función del ancho. ¿Cuál es el $R^2$? Discutir.*
+
+```{r modelo_iris}
+modelo_iris <- lm(Sepal.Length ~ Sepal.Width, datos_iris)
+modelo_iris
+
+summary(modelo_iris)$r.squared
+```
+
+```{r graf_iris_recta}
+ggplot(datos_iris, aes(x = Sepal.Width, y = Sepal.Length)) +
+  geom_point(color = "green4", alpha = 0.8, size = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed", linewidth = 0.8) +
+  labs(title = "Largo vs. ancho del sépalo — todas las especies",
+       x     = "Ancho del sépalo (cm)",
+       y     = "Largo del sépalo (cm)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+La ordenada es 6.526 y la pendiente es −0.223. Con un $R^2 = 0.014$, el modelo explica apenas el 1.4% de la variabilidad, lo que es prácticamente nulo.
+
+El problema es que al incluir las tres especies juntas los puntos forman una nube dispersa sin patrón claro, y la recta termina con pendiente negativa, indicaría que a mayor ancho del sépalo menor largo, lo que no tiene sentido biológico. La tendencia positiva que sí existe dentro de cada especie desaparece o se invierte al mezclarlas, un fenómeno conocido como **paradoja de Simpson**. La especie es una variable de confusión, las partes de la flor dependen fuertemente de ella, por lo que el análisis debe hacerse separando por especie.
+
+---
+
+## Ejercicio 6
+
+**6.1** *Abrir y explorar los datos.*
+
+```{r girasol_carga}
+datos_girasol <- read.table("datosRendimientos.txt", header = TRUE)
+
+str(datos_girasol)
+summary(datos_girasol)
+```
+
+El dataset tiene 72 observaciones y 2 variables sin NAs. El fertilizante varía entre 0 y 80 gr/100gr de mezcla, y el rendimiento entre aproximadamente 400 y 2975 kg/ha.
+
+---
+
+**6.2** *Realizar un gráfico de dispersión de rendimiento en función del fertilizante.*
+
+```{r graf_girasol}
+ggplot(datos_girasol, aes(x = Fert, y = Rend)) +
+  geom_point(color = "orange", alpha = 0.8, size = 1.5) +
+  labs(title = "Rendimiento en función del nuevo fertilizante",
+       x     = "Fertilizante (gr/100gr de mezcla)",
+       y     = "Rendimiento del girasol (kg/ha)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+Como la variable explicativa solo puede tomar 9 valores exactos (el experimento fijó 9 niveles de fertilizante), los puntos se alinean verticalmente sobre esas coordenadas, formando columnas.
+
+---
+
+**6.3** *Ajustar un modelo de RLS. Escribir la ecuación e interpretar los coeficientes.*
+
+```{r modelo_girasol}
+modelo_girasol <- lm(Rend ~ Fert, datos_girasol)
+modelo_girasol
+```
+
+```{r graf_girasol_recta}
+ggplot(datos_girasol, aes(x = Fert, y = Rend)) +
+  geom_point(color = "orange", alpha = 0.8, size = 1.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Rendimiento en función del nuevo fertilizante",
+       x     = "Fertilizante (gr/100gr de mezcla)",
+       y     = "Rendimiento del girasol (kg/ha)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+La ecuación estimada es: $\widehat{\text{Rend}} = 692.10 + 22.44 \times \text{Fert}$
+
+La **ordenada** (692.10 kg/ha) representa el rendimiento base del campo cuando no se aplica el nuevo fertilizante (solo la composición tradicional). La **pendiente** (22.44 kg/ha) indica que por cada gr adicional de nuevo fertilizante por cada 100gr de mezcla, el rendimiento aumenta en promedio 22.44 kg/ha. Al ser positiva, confirma la sospecha de los investigadores.
+
+---
+
+**6.4** *Calcular el $R^2$.*
+
+```{r r2_girasol}
+summary(modelo_girasol)$r.squared
+```
+
+El $R^2 = 0.784$ indica que el 78.4% de la variabilidad total en el rendimiento del girasol está explicada por la cantidad de nuevo fertilizante. El 21.6% restante se debe a factores aleatorios que el investigador no puede controlar (condiciones del suelo, clima, etc.). El modelo tiene **un buen ajuste**.
+
+---
+
+**6.5** *Si se repitiera el experimento, ¿qué ocurriría con los parámetros estimados y con el $R^2$?*
+
+Si se repitiera el experimento en las mismas condiciones, los nuevos rendimientos observados variarían debido al error aleatorio. Como consecuencia, los parámetros estimados ($\hat{\beta}_0$ y $\hat{\beta}_1$) y el $R^2$ no serían exactamente iguales, sino que sufrirían ligeras modificaciones por la variabilidad muestral. Sin embargo, dado que los estimadores de mínimos cuadrados son **insesgados**, los nuevos valores de la pendiente y el intercepto tenderán a agruparse alrededor de los parámetros poblacionales verdaderos, manteniéndose estables y muy similares a los actuales. El $R^2$ oscilará levemente en torno al 0.784 original, manteniendo su poder explicativo general.
+
+---
+
+**6.6** *Si se centrara X en la media, ¿cómo se interpreta la ordenada? ¿Cambian la pendiente y el $R^2$?*
+
+```{r modelo_girasol_centrado}
+datos_girasol_centrado <- datos_girasol %>% 
+  mutate(Fert_centrado = Fert - mean(Fert))
+
+modelo_gir_centrado <- lm(Rend ~ Fert_centrado, datos_girasol_centrado)
+modelo_gir_centrado
+```
+
+```{r graf_girasol_centrado}
+ggplot(datos_girasol_centrado, aes(x = Fert_centrado, y = Rend)) +
+  geom_point(color = "orange", alpha = 0.8, size = 1.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Rendimiento en función del fertilizante centrado",
+       x     = "Fertilizante centrado (gr/100gr de mezcla)",
+       y     = "Rendimiento del girasol (kg/ha)") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+```{r r2_girasol_centrado}
+calcular_R2_ECM(modelo_gir_centrado)
+```
+
+Al centrar, la **ordenada pasa de 692.10 a 1589.54**, ahora representa el rendimiento promedio esperado para un lote que recibió la dosis promedio de fertilizante del experimento, lo que tiene una interpretación directa y concreta.
+
+La **pendiente no cambia** (sigue siendo 22.44) y el **$R^2$ tampoco varía** ya que centrar la variable solo desplaza el gráfico lateralmente sin modificar las distancias verticales entre los puntos y la recta, por lo que los residuos, el ECM y el $R^2$ permanecen idénticos.
